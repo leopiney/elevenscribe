@@ -88,7 +88,7 @@ export function useScribe() {
     micLabel.value = tracks[0]?.label ?? "";
     console.log(
       "[scribe] mic tracks:",
-      tracks.map((t) => ({ label: t.label, state: t.readyState })),
+      tracks.map((t) => ({ label: t.label, state: t.readyState }))
     );
 
     audioContext = new AudioContext({ sampleRate: 16000 });
@@ -96,7 +96,7 @@ export function useScribe() {
       "[scribe] AudioContext state:",
       audioContext.state,
       "/ actual sampleRate:",
-      audioContext.sampleRate,
+      audioContext.sampleRate
     );
 
     // AudioContext can start suspended on some WebViews — resume it explicitly
@@ -128,7 +128,7 @@ export function useScribe() {
       // Log first 3 chunks and then every 50th to avoid flooding
       if (chunksSent < 3 || chunksSent % 50 === 0) {
         console.log(
-          `[scribe] → chunk #${chunksSent} | RMS: ${rms.toFixed(4)} | bytes: ${int16.byteLength}`,
+          `[scribe] → chunk #${chunksSent} | RMS: ${rms.toFixed(4)} | bytes: ${int16.byteLength}`
         );
       }
       chunksSent++;
@@ -137,7 +137,7 @@ export function useScribe() {
         JSON.stringify({
           message_type: "input_audio_chunk",
           audio_base_64: audio,
-        }),
+        })
       );
     };
 
@@ -147,9 +147,9 @@ export function useScribe() {
   }
 
   async function stop() {
-    console.log("[scribe] stopping…")
+    console.log("[scribe] stopping…");
     await invoke("restore_volume").catch((e) => console.warn("[scribe] restore_volume failed:", e));
-    await invoke("resume_media").catch((e) => console.warn("[scribe] resume_media failed:", e));;
+    await invoke("resume_media").catch((e) => console.warn("[scribe] resume_media failed:", e));
 
     // Disconnect audio pipeline first so no more chunks are sent
     processor?.disconnect();

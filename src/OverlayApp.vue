@@ -104,7 +104,9 @@ invoke<boolean>("has_api_key").then((hasKey) => {
 });
 
 useTauriEvents("toggle-recording", toggle);
-useTauriEvents("show-setup", () => { needsSetup.value = true; });
+useTauriEvents("show-setup", () => {
+  needsSetup.value = true;
+});
 </script>
 
 <template>
@@ -116,9 +118,7 @@ useTauriEvents("show-setup", () => { needsSetup.value = true; });
         <div class="card-header">
           <RecordingDot :active="isRecording" />
           <span class="status-label">
-            <span v-if="errorMsg || error" class="error-text">{{
-              errorMsg || error
-            }}</span>
+            <span v-if="errorMsg || error" class="error-text">{{ errorMsg || error }}</span>
             <template v-else-if="isRecording">
               Recording…<template v-if="micLabel"> · {{ micLabel }}</template>
             </template>
@@ -129,7 +129,7 @@ useTauriEvents("show-setup", () => { needsSetup.value = true; });
           </button>
         </div>
         <div v-if="isRecording" class="level-bar-track">
-          <div class="level-bar-fill" :style="{ width: (audioLevel * 100) + '%' }"></div>
+          <div class="level-bar-fill" :style="{ width: audioLevel * 100 + '%' }"></div>
         </div>
         <TranscriptDisplay
           :is-recording="isRecording"

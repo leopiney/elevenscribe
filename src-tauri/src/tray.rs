@@ -1,6 +1,5 @@
 use tauri::menu::{
-    CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItem, MenuItemBuilder,
-    PredefinedMenuItem,
+    CheckMenuItem, CheckMenuItemBuilder, MenuBuilder, MenuItem, MenuItemBuilder, PredefinedMenuItem,
 };
 use tauri::tray::TrayIconBuilder;
 use tauri::{Emitter, Manager};
@@ -28,17 +27,15 @@ pub fn api_key_label(key: &str) -> String {
 pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let key = app.state::<AppState>().api_key.lock().unwrap().clone();
 
-    let api_key_item =
-        MenuItemBuilder::with_id("api_key", api_key_label(&key)).build(app)?;
+    let api_key_item = MenuItemBuilder::with_id("api_key", api_key_label(&key)).build(app)?;
 
     let duck_item = CheckMenuItemBuilder::with_id("duck_volume", "Duck volume while recording")
         .checked(true)
         .build(app)?;
 
-    let media_item =
-        CheckMenuItemBuilder::with_id("stop_media", "Pause media while recording")
-            .checked(false)
-            .build(app)?;
+    let media_item = CheckMenuItemBuilder::with_id("stop_media", "Pause media while recording")
+        .checked(false)
+        .build(app)?;
 
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
@@ -70,7 +67,8 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                             if let Ok(config_dir) = app.path().app_config_dir() {
                                 let json = serde_json::json!({ "elevenlabs_api_key": "" });
                                 if let Ok(contents) = serde_json::to_string_pretty(&json) {
-                                    let _ = std::fs::write(config_dir.join("config.json"), contents);
+                                    let _ =
+                                        std::fs::write(config_dir.join("config.json"), contents);
                                 }
                             }
                             let _ = app

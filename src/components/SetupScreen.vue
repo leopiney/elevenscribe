@@ -41,11 +41,7 @@ async function save() {
         spellcheck="false"
         @keydown.enter="save"
       />
-      <button
-        class="btn-save"
-        :disabled="!apiKey.trim() || saving"
-        @click="save"
-      >
+      <button class="btn-save" :disabled="!apiKey.trim() || saving" @click="save">
         {{ saving ? "Saving…" : "Save" }}
       </button>
     </div>

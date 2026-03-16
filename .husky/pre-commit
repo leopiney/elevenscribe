@@ -1,0 +1,6 @@
+# TypeScript / Vue — lint and format staged files
+pnpm lint-staged
+
+# Rust — check formatting and run Clippy
+cargo fmt --manifest-path src-tauri/Cargo.toml -- --check
+cargo clippy --manifest-path src-tauri/Cargo.toml -- -D warnings
