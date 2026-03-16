@@ -42,3 +42,16 @@ For development with hot-reload:
 ```bash
 pnpm tauri dev
 ```
+
+## Contributing
+
+Commits must follow the [Conventional Commits](https://www.conventionalcommits.org) format — this is enforced by a commit-msg hook and drives automatic versioning:
+
+| Prefix                       | Example                        | Version bump          |
+| ---------------------------- | ------------------------------ | --------------------- |
+| `feat:`                      | `feat: add paste on stop`      | minor `0.1.0 → 0.2.0` |
+| `fix:`                       | `fix: restore volume on crash` | patch `0.1.0 → 0.1.1` |
+| `feat!:`                     | `feat!: redesign overlay API`  | major `0.1.0 → 1.0.0` |
+| `chore:` `docs:` `refactor:` | `chore: update deps`           | no bump               |
+
+When a versioned commit is merged to `main`, a Release PR is opened automatically. Merging it tags the release and triggers the macOS build.
