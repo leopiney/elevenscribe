@@ -49,7 +49,7 @@ pnpm tauri dev
 
 ## Related
 
-[Epicenter](https://github.com/EpicenterHQ/epicenter) — a simpler ElevenLabs-only dictation app, worth a look if you want a more minimal setup.
+[Epicenter](https://github.com/EpicenterHQ/epicenter) — a more fully-featured ElevenLabs dictation app with more configuration options, if you need something beyond what Elevenscribe offers.
 
 ## Contributing
 
