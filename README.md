@@ -47,6 +47,10 @@ For development with hot-reload:
 pnpm tauri dev
 ```
 
+## Related
+
+[Epicenter](https://github.com/EpicenterHQ/epicenter) — a simpler ElevenLabs-only dictation app, worth a look if you want a more minimal setup.
+
 ## Contributing
 
 Commits must follow the [Conventional Commits](https://www.conventionalcommits.org) format — this is enforced by a commit-msg hook and drives automatic versioning:
