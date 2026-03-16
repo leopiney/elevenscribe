@@ -2,6 +2,7 @@ use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use serde::Deserialize;
 use tauri::{AppHandle, Manager, State};
 
+use crate::tray::{api_key_label, TrayState};
 use crate::AppState;
 
 #[derive(Deserialize)]
@@ -30,7 +31,13 @@ pub async fn save_api_key(
     let contents = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
     std::fs::write(config_dir.join("config.json"), contents).map_err(|e| e.to_string())?;
 
-    *state.api_key.lock().unwrap() = key;
+    *state.api_key.lock().unwrap() = key.clone();
+
+    // Update the tray menu label to show the new (masked) key.
+    if let Some(tray_state) = app.try_state::<TrayState>() {
+        let _ = tray_state.api_key_item.set_text(api_key_label(&key));
+    }
+
     Ok(())
 }
 
@@ -60,6 +67,141 @@ pub async fn get_scribe_token(state: State<'_, AppState>) -> Result<String, Stri
 
     let token_response: TokenResponse = response.json().await.map_err(|e| e.to_string())?;
     Ok(token_response.token)
+}
+
+/// Save the current system output volume and halve it while recording.
+#[tauri::command]
+pub async fn duck_volume(state: State<'_, AppState>) -> Result<(), String> {
+    if !*state.duck_volume_enabled.lock().unwrap() {
+        return Ok(());
+    }
+
+    let output = tokio::process::Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg("output volume of (get volume settings)")
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let current: u32 = String::from_utf8_lossy(&output.stdout)
+        .trim()
+        .parse()
+        .unwrap_or(50);
+
+    *state.saved_volume.lock().unwrap() = Some(current);
+    let reduced = current / 2;
+
+    tokio::process::Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(format!("set volume output volume {reduced}"))
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
+}
+
+/// Restore the system output volume to the value saved before recording started.
+#[tauri::command]
+pub async fn restore_volume(state: State<'_, AppState>) -> Result<(), String> {
+    let saved = *state.saved_volume.lock().unwrap();
+    if let Some(volume) = saved {
+        *state.saved_volume.lock().unwrap() = None;
+        tokio::process::Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg(format!("set volume output volume {volume}"))
+            .output()
+            .await
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Pause any currently playing media (Music, Spotify, Podcasts) before recording.
+#[tauri::command]
+pub async fn stop_media(state: State<'_, AppState>) -> Result<(), String> {
+    if !*state.stop_media_enabled.lock().unwrap() {
+        return Ok(());
+    }
+
+    let script = r#"
+set wasPlaying to false
+if application "Music" is running then
+  try
+    if player state of application "Music" is playing then
+      tell application "Music" to pause
+      set wasPlaying to true
+    end if
+  end try
+end if
+if application "Spotify" is running then
+  try
+    if player state of application "Spotify" is playing then
+      tell application "Spotify" to pause
+      set wasPlaying to true
+    end if
+  end try
+end if
+if application "Podcasts" is running then
+  try
+    if player state of application "Podcasts" is playing then
+      tell application "Podcasts" to pause
+      set wasPlaying to true
+    end if
+  end try
+end if
+return wasPlaying
+"#;
+
+    let output = tokio::process::Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let was_playing = String::from_utf8_lossy(&output.stdout).trim() == "true";
+    *state.was_media_playing.lock().unwrap() = was_playing;
+
+    Ok(())
+}
+
+/// Resume media that was playing before recording started.
+#[tauri::command]
+pub async fn resume_media(state: State<'_, AppState>) -> Result<(), String> {
+    let was_playing = *state.was_media_playing.lock().unwrap();
+    if !was_playing {
+        return Ok(());
+    }
+
+    *state.was_media_playing.lock().unwrap() = false;
+
+    let script = r#"
+if application "Music" is running then
+  try
+    tell application "Music" to play
+  end try
+end if
+if application "Spotify" is running then
+  try
+    tell application "Spotify" to play
+  end try
+end if
+if application "Podcasts" is running then
+  try
+    tell application "Podcasts" to play
+  end try
+end if
+"#;
+
+    tokio::process::Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    Ok(())
 }
 
 /// Hide the floating overlay window.

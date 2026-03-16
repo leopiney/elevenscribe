@@ -7,6 +7,10 @@ use tauri_plugin_global_shortcut::ShortcutState;
 
 pub struct AppState {
     pub api_key: Mutex<String>,
+    pub saved_volume: Mutex<Option<u32>>,
+    pub duck_volume_enabled: Mutex<bool>,
+    pub stop_media_enabled: Mutex<bool>,
+    pub was_media_playing: Mutex<bool>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -29,6 +33,10 @@ pub fn run() {
         .plugin(tauri_plugin_clipboard_manager::init())
         .manage(AppState {
             api_key: Mutex::new(String::new()),
+            saved_volume: Mutex::new(None),
+            duck_volume_enabled: Mutex::new(true),
+            stop_media_enabled: Mutex::new(false),
+            was_media_playing: Mutex::new(false),
         })
         .setup(|app| {
             if let Ok(config_dir) = app.path().app_config_dir() {
@@ -47,6 +55,10 @@ pub fn run() {
             commands::paste_text,
             commands::hide_overlay,
             commands::show_overlay,
+            commands::duck_volume,
+            commands::restore_volume,
+            commands::stop_media,
+            commands::resume_media,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

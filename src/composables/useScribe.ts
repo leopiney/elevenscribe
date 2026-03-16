@@ -16,6 +16,9 @@ export function useScribe() {
   async function start() {
     error.value = "";
 
+    await invoke("duck_volume").catch((e) => console.warn("[scribe] duck_volume failed:", e));
+    await invoke("stop_media").catch((e) => console.warn("[scribe] stop_media failed:", e));
+
     // ── 1. Get ephemeral token ──────────────────────────────────────────────
     console.log("[scribe] fetching token…");
     const token = await invoke<string>("get_scribe_token");
@@ -144,7 +147,9 @@ export function useScribe() {
   }
 
   async function stop() {
-    console.log("[scribe] stopping…");
+    console.log("[scribe] stopping…")
+    await invoke("restore_volume").catch((e) => console.warn("[scribe] restore_volume failed:", e));
+    await invoke("resume_media").catch((e) => console.warn("[scribe] resume_media failed:", e));;
 
     // Disconnect audio pipeline first so no more chunks are sent
     processor?.disconnect();

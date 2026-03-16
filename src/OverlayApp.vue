@@ -104,6 +104,7 @@ invoke<boolean>("has_api_key").then((hasKey) => {
 });
 
 useTauriEvents("toggle-recording", toggle);
+useTauriEvents("show-setup", () => { needsSetup.value = true; });
 </script>
 
 <template>
