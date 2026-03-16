@@ -1,0 +1,191 @@
+import { ref } from "vue";
+import { invoke } from "@tauri-apps/api/core";
+
+export function useScribe() {
+  const partialText = ref("");
+  const committedText = ref("");
+  const micLabel = ref("");
+  const error = ref("");
+  const audioLevel = ref(0); // 0–1 RMS, updated per chunk for the level meter
+
+  let ws: WebSocket | null = null;
+  let mediaStream: MediaStream | null = null;
+  let audioContext: AudioContext | null = null;
+  let processor: ScriptProcessorNode | null = null;
+
+  async function start() {
+    error.value = "";
+
+    // ── 1. Get ephemeral token ──────────────────────────────────────────────
+    console.log("[scribe] fetching token…");
+    const token = await invoke<string>("get_scribe_token");
+    console.log("[scribe] token received:", token.slice(0, 8) + "…");
+
+    // ── 2. Open WebSocket ───────────────────────────────────────────────────
+    const url = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?token=${encodeURIComponent(token)}&model_id=scribe_v2_realtime&commit_strategy=vad`;
+    console.log("[scribe] connecting WebSocket…");
+    ws = new WebSocket(url);
+    ws.binaryType = "arraybuffer";
+
+    await new Promise<void>((resolve, reject) => {
+      ws!.onopen = () => {
+        console.log("[scribe] WebSocket opened");
+        resolve();
+      };
+      ws!.onerror = (e) => {
+        console.error("[scribe] WebSocket handshake error:", e);
+        reject(new Error("WebSocket connection failed"));
+      };
+    });
+
+    // Log every message from the server (transcripts, session events, errors)
+    ws.onmessage = (event) => {
+      console.log("[scribe] ←", event.data);
+      try {
+        const data = JSON.parse(event.data as string) as {
+          message_type: string;
+          text?: string;
+        };
+        if (data.message_type === "partial_transcript" && data.text !== undefined) {
+          partialText.value = data.text;
+        } else if (
+          (data.message_type === "committed_transcript" ||
+            data.message_type === "committed_transcript_with_timestamps") &&
+          data.text !== undefined
+        ) {
+          committedText.value += data.text + " ";
+          partialText.value = "";
+        }
+      } catch {
+        // ignore malformed messages
+      }
+    };
+
+    ws.onclose = (e) => {
+      console.warn("[scribe] WebSocket closed — code:", e.code, "reason:", e.reason);
+    };
+
+    ws.onerror = (e) => {
+      console.error("[scribe] WebSocket error:", e);
+      error.value = "Connection error — see console";
+    };
+
+    // ── 3. Capture microphone ───────────────────────────────────────────────
+    console.log("[scribe] requesting microphone…");
+    mediaStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        sampleRate: 16000,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+      },
+    });
+
+    const tracks = mediaStream.getTracks();
+    micLabel.value = tracks[0]?.label ?? "";
+    console.log(
+      "[scribe] mic tracks:",
+      tracks.map((t) => ({ label: t.label, state: t.readyState })),
+    );
+
+    audioContext = new AudioContext({ sampleRate: 16000 });
+    console.log(
+      "[scribe] AudioContext state:",
+      audioContext.state,
+      "/ actual sampleRate:",
+      audioContext.sampleRate,
+    );
+
+    // AudioContext can start suspended on some WebViews — resume it explicitly
+    if (audioContext.state === "suspended") {
+      await audioContext.resume();
+      console.log("[scribe] AudioContext resumed");
+    }
+
+    const source = audioContext.createMediaStreamSource(mediaStream);
+    // 4096 samples @ 16 kHz ≈ 256 ms per chunk
+    processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+    let chunksSent = 0;
+
+    processor.onaudioprocess = (e) => {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+      const float32 = e.inputBuffer.getChannelData(0);
+
+      // Compute RMS for the level meter
+      let sum = 0;
+      for (let i = 0; i < float32.length; i++) sum += float32[i] * float32[i];
+      const rms = Math.sqrt(sum / float32.length);
+      audioLevel.value = Math.min(1, rms * 8); // scale up for visibility
+
+      const int16 = float32ToInt16(float32);
+      const audio = arrayBufferToBase64(int16.buffer);
+
+      // Log first 3 chunks and then every 50th to avoid flooding
+      if (chunksSent < 3 || chunksSent % 50 === 0) {
+        console.log(
+          `[scribe] → chunk #${chunksSent} | RMS: ${rms.toFixed(4)} | bytes: ${int16.byteLength}`,
+        );
+      }
+      chunksSent++;
+
+      ws.send(
+        JSON.stringify({
+          message_type: "input_audio_chunk",
+          audio_base_64: audio,
+        }),
+      );
+    };
+
+    source.connect(processor);
+    processor.connect(audioContext.destination);
+    console.log("[scribe] audio pipeline active");
+  }
+
+  async function stop() {
+    console.log("[scribe] stopping…");
+
+    // Disconnect audio pipeline first so no more chunks are sent
+    processor?.disconnect();
+    processor = null;
+
+    mediaStream?.getTracks().forEach((t) => t.stop());
+    mediaStream = null;
+
+    await audioContext?.close().catch(() => undefined);
+    audioContext = null;
+
+    audioLevel.value = 0;
+
+    // Clear all handlers before closing so spurious error/close events
+    // from the abrupt teardown don't surface as user-visible errors
+    if (ws) {
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      ws.close();
+      ws = null;
+    }
+  }
+
+  function float32ToInt16(float32: Float32Array): Int16Array {
+    const int16 = new Int16Array(float32.length);
+    for (let i = 0; i < float32.length; i++) {
+      const s = Math.max(-1, Math.min(1, float32[i]));
+      int16[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+    }
+    return int16;
+  }
+
+  function arrayBufferToBase64(buffer: ArrayBuffer): string {
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return btoa(binary);
+  }
+
+  return { partialText, committedText, micLabel, error, audioLevel, start, stop };
+}
