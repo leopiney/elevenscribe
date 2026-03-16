@@ -10,7 +10,11 @@
 
 ---
 
-Elevenscribe is a macOS menubar app that turns your voice into text using the [ElevenLabs Scribe](https://elevenlabs.io/blog/introducing-scribe-v2) real-time API. Press **⌘ Shift Space** to start recording, speak, then press again to stop — the transcript is pasted directly into the active app.
+Elevenscribe is a macOS menubar app that turns your voice into text using the [ElevenLabs Scribe](https://elevenlabs.io/blog/introducing-scribe-v2) real-time API. Press **⌘ Shift Space** to start recording, speak, then press **⌘ Shift Space** again to stop — the transcript is pasted directly into the active app.
+
+<p align="center">
+  <img src="docs/screenshot.png" width="600" alt="Elevenscribe overlay showing live transcription while a YouTube video plays" />
+</p>
 
 - Floating overlay shows live transcription as you speak
 - Automatically ducks system volume while recording
