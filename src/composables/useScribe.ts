@@ -1,20 +1,63 @@
 import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 
+// Persistent mic stream — acquired once (from a user gesture) and reused
+// across recording sessions so the global shortcut flow works without
+// needing a fresh getUserMedia call (which requires user activation).
+let persistentStream: MediaStream | null = null;
+
 export function useScribe() {
   const partialText = ref("");
   const committedText = ref("");
   const micLabel = ref("");
   const error = ref("");
   const audioLevel = ref(0); // 0–1 RMS, updated per chunk for the level meter
+  const needsMicPermission = ref(false);
 
   let ws: WebSocket | null = null;
-  let mediaStream: MediaStream | null = null;
   let audioContext: AudioContext | null = null;
   let processor: ScriptProcessorNode | null = null;
 
+  /** Acquire the microphone. Call this from a click handler (user gesture). */
+  async function acquireMic(): Promise<MediaStream> {
+    if (persistentStream && persistentStream.getTracks().every((t) => t.readyState === "live")) {
+      return persistentStream;
+    }
+
+    console.log("[scribe] requesting microphone…");
+    persistentStream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        sampleRate: 16000,
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+      },
+    });
+
+    const tracks = persistentStream.getTracks();
+    micLabel.value = tracks[0]?.label ?? "";
+    console.log(
+      "[scribe] mic tracks:",
+      tracks.map((t) => ({ label: t.label, state: t.readyState }))
+    );
+    needsMicPermission.value = false;
+    return persistentStream;
+  }
+
   async function start() {
     error.value = "";
+
+    // ── 0. Ensure we have a mic stream ────────────────────────────────────
+    let stream: MediaStream;
+    try {
+      stream = await acquireMic();
+    } catch (e) {
+      // getUserMedia failed — likely no user activation. Signal the UI
+      // to show a "Grant mic" button so the user can click it.
+      console.warn("[scribe] getUserMedia failed, need user gesture:", e);
+      needsMicPermission.value = true;
+      throw e;
+    }
 
     await invoke("duck_volume").catch((e) => console.warn("[scribe] duck_volume failed:", e));
     await invoke("stop_media").catch((e) => console.warn("[scribe] stop_media failed:", e));
@@ -73,24 +116,7 @@ export function useScribe() {
       error.value = "Connection error — see console";
     };
 
-    // ── 3. Capture microphone ───────────────────────────────────────────────
-    console.log("[scribe] requesting microphone…");
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        sampleRate: 16000,
-        channelCount: 1,
-        echoCancellation: true,
-        noiseSuppression: true,
-      },
-    });
-
-    const tracks = mediaStream.getTracks();
-    micLabel.value = tracks[0]?.label ?? "";
-    console.log(
-      "[scribe] mic tracks:",
-      tracks.map((t) => ({ label: t.label, state: t.readyState }))
-    );
-
+    // ── 3. Build audio pipeline from persistent stream ────────────────────
     audioContext = new AudioContext({ sampleRate: 16000 });
     console.log(
       "[scribe] AudioContext state:",
@@ -105,7 +131,7 @@ export function useScribe() {
       console.log("[scribe] AudioContext resumed");
     }
 
-    const source = audioContext.createMediaStreamSource(mediaStream);
+    const source = audioContext.createMediaStreamSource(stream);
     // 4096 samples @ 16 kHz ≈ 256 ms per chunk
     processor = audioContext.createScriptProcessor(4096, 1, 1);
 
@@ -151,12 +177,9 @@ export function useScribe() {
     await invoke("restore_volume").catch((e) => console.warn("[scribe] restore_volume failed:", e));
     await invoke("resume_media").catch((e) => console.warn("[scribe] resume_media failed:", e));
 
-    // Disconnect audio pipeline first so no more chunks are sent
+    // Disconnect audio pipeline but keep the persistent mic stream alive
     processor?.disconnect();
     processor = null;
-
-    mediaStream?.getTracks().forEach((t) => t.stop());
-    mediaStream = null;
 
     await audioContext?.close().catch(() => undefined);
     audioContext = null;
@@ -192,5 +215,15 @@ export function useScribe() {
     return btoa(binary);
   }
 
-  return { partialText, committedText, micLabel, error, audioLevel, start, stop };
+  return {
+    partialText,
+    committedText,
+    micLabel,
+    error,
+    audioLevel,
+    needsMicPermission,
+    start,
+    stop,
+    acquireMic,
+  };
 }

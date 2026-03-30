@@ -1,13 +1,28 @@
 <script setup lang="ts">
-defineProps<{
+import { ref, watch, nextTick } from "vue";
+
+const props = defineProps<{
   isRecording: boolean;
   partialText: string;
   committedText: string;
 }>();
+
+const transcriptEl = ref<HTMLElement | null>(null);
+
+function scrollToBottom() {
+  nextTick(() => {
+    if (transcriptEl.value) {
+      transcriptEl.value.scrollTop = transcriptEl.value.scrollHeight;
+    }
+  });
+}
+
+watch(() => props.committedText, scrollToBottom);
+watch(() => props.partialText, scrollToBottom);
 </script>
 
 <template>
-  <div class="transcript">
+  <div ref="transcriptEl" class="transcript">
     <span class="committed">{{ committedText }}</span>
     <span class="partial">{{ partialText }}</span>
     <span v-if="isRecording && !committedText && !partialText" class="placeholder">
@@ -23,6 +38,8 @@ defineProps<{
   line-height: 1.55;
   padding: 4px 0;
   word-break: break-word;
+  overflow-y: auto;
+  flex: 1 1 0;
 }
 
 .committed {

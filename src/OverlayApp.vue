@@ -12,7 +12,17 @@ import { useTauriEvents } from "./composables/useTauriEvents";
 const isRecording = ref(false);
 const needsSetup = ref(false);
 const errorMsg = ref("");
-const { partialText, committedText, micLabel, error, audioLevel, start, stop } = useScribe();
+const {
+  partialText,
+  committedText,
+  micLabel,
+  error,
+  audioLevel,
+  needsMicPermission,
+  start,
+  stop,
+  acquireMic,
+} = useScribe();
 
 async function startRecording() {
   committedText.value = "";
@@ -22,8 +32,24 @@ async function startRecording() {
     await start();
     isRecording.value = true;
   } catch (err) {
-    errorMsg.value = String(err);
+    // If mic permission is needed, don't show the raw error — the UI
+    // will show a "Grant Microphone" button instead.
+    if (!needsMicPermission.value) {
+      errorMsg.value = String(err);
+    }
     console.error("[elevenscribe] startRecording failed:", err);
+  }
+}
+
+/** Called from the "Grant Microphone" button (user gesture context). */
+async function grantMicAndRecord() {
+  errorMsg.value = "";
+  try {
+    await acquireMic();
+    await startRecording();
+  } catch (err) {
+    errorMsg.value = String(err);
+    console.error("[elevenscribe] grantMicAndRecord failed:", err);
   }
 }
 
@@ -118,13 +144,17 @@ useTauriEvents("show-setup", () => {
         <div class="card-header">
           <RecordingDot :active="isRecording" />
           <span class="status-label">
-            <span v-if="errorMsg || error" class="error-text">{{ errorMsg || error }}</span>
+            <span v-if="needsMicPermission" class="error-text">Microphone access required</span>
+            <span v-else-if="errorMsg || error" class="error-text">{{ errorMsg || error }}</span>
             <template v-else-if="isRecording">
               Recording…<template v-if="micLabel"> · {{ micLabel }}</template>
             </template>
             <template v-else>Ready</template>
           </span>
-          <button class="btn-toggle" @click="isRecording ? stopRecording() : toggle()">
+          <button v-if="needsMicPermission" class="btn-toggle btn-grant" @click="grantMicAndRecord">
+            Grant Microphone
+          </button>
+          <button v-else class="btn-toggle" @click="isRecording ? stopRecording() : toggle()">
             {{ isRecording ? "Stop" : "Record" }}
           </button>
         </div>
@@ -176,9 +206,13 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.1);
   color: white;
   width: 100%;
+  max-height: calc(100vh - 24px);
   padding: 14px 16px;
   box-sizing: border-box;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .card-header {
@@ -186,6 +220,7 @@ body {
   align-items: center;
   gap: 8px;
   margin-bottom: 8px;
+  flex-shrink: 0;
 }
 
 .status-label {
@@ -217,12 +252,22 @@ body {
   background: rgba(255, 255, 255, 0.2);
 }
 
+.btn-grant {
+  background: rgba(99, 102, 241, 0.75);
+  border-color: rgba(99, 102, 241, 0.9);
+}
+
+.btn-grant:hover {
+  background: rgba(99, 102, 241, 1);
+}
+
 .level-bar-track {
   height: 3px;
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.08);
   margin-bottom: 8px;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .level-bar-fill {
