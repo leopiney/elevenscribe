@@ -1,5 +1,6 @@
 use base64::Engine as _;
 use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::sync::watch;
 
@@ -174,6 +175,32 @@ fn context_head(text: &str) -> String {
     text.chars().take(200).collect()
 }
 
+// ── Audio caching ────────────────────────────────────────────────────────────
+
+fn audio_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let config_dir = app.path().app_config_dir().map_err(|e| e.to_string())?;
+    let dir = config_dir.join("audio");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+fn generate_audio_id() -> String {
+    chrono::Utc::now().timestamp_millis().to_string()
+}
+
+fn save_audio_chunk(
+    base: &std::path::Path,
+    audio_id: &str,
+    chunk_index: usize,
+    data: &[u8],
+) -> Result<(), String> {
+    let dir = base.join(audio_id);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    std::fs::write(dir.join(format!("chunk_{chunk_index}.mp3")), data)
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 // ── ElevenLabs API helpers ────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
@@ -276,13 +303,14 @@ pub async fn set_selected_voice(
 }
 
 /// Start TTS playback for the given text. Chunks it, streams each chunk from
-/// ElevenLabs, and emits audio data events back to the frontend.
+/// ElevenLabs, emits audio data events back to the frontend, and caches
+/// MP3 chunks to disk for later replay.
 #[tauri::command]
 pub async fn start_tts(
     app: AppHandle,
     state: State<'_, AppState>,
     text: String,
-) -> Result<(), String> {
+) -> Result<String, String> {
     let key = state.api_key.lock().unwrap().clone();
     if key.is_empty() {
         return Err("No API key configured".to_string());
@@ -291,7 +319,6 @@ pub async fn start_tts(
     let voice_id = {
         let vid = state.selected_voice_id.lock().unwrap().clone();
         if vid.is_empty() {
-            // Default to "Rachel" voice
             "21m00Tcm4TlvDq8ikWAM".to_string()
         } else {
             vid
@@ -315,6 +342,10 @@ pub async fn start_tts(
     let (cancel_tx, cancel_rx) = watch::channel(false);
     *state.tts_cancel.lock().unwrap() = Some(cancel_tx);
 
+    // Generate audio_id for caching
+    let audio_id = generate_audio_id();
+    let cache_base = audio_cache_dir(&app).ok();
+
     // Emit chunk metadata
     let chunk_infos: Vec<TtsChunkInfo> = chunks
         .iter()
@@ -328,27 +359,24 @@ pub async fn start_tts(
 
     let _ = app.emit("tts-chunks-ready", &chunk_infos);
 
-    // Spawn the streaming task
     let app_handle = app.clone();
     let chunks_clone = chunks.clone();
+    let audio_id_clone = audio_id.clone();
     tokio::spawn(async move {
         let client = reqwest::Client::new();
         let total = chunks_clone.len();
 
         for (i, chunk) in chunks_clone.iter().enumerate() {
-            // Check cancellation
             if *cancel_rx.borrow() {
                 let _ = app_handle.emit("tts-stopped", ());
                 return;
             }
 
-            // Emit which chunk is starting
             let _ = app_handle.emit(
                 "tts-chunk-started",
                 serde_json::json!({ "index": i, "total": total, "preview": chunk_preview(chunk) }),
             );
 
-            // Build request body with context for smooth transitions
             let mut body = serde_json::json!({
                 "text": chunk,
                 "model_id": "eleven_multilingual_v2",
@@ -387,7 +415,6 @@ pub async fn start_tts(
                         return;
                     }
 
-                    // Accumulate the full audio response for this chunk
                     let bytes = match response.bytes().await {
                         Ok(b) => b,
                         Err(e) => {
@@ -399,10 +426,14 @@ pub async fn start_tts(
                         }
                     };
 
-                    // Check cancellation before emitting
                     if *cancel_rx.borrow() {
                         let _ = app_handle.emit("tts-stopped", ());
                         return;
+                    }
+
+                    // Cache the MP3 chunk to disk
+                    if let Some(ref base) = cache_base {
+                        let _ = save_audio_chunk(base, &audio_id_clone, i, &bytes);
                     }
 
                     let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
@@ -426,10 +457,14 @@ pub async fn start_tts(
             }
         }
 
+        let _ = app_handle.emit(
+            "tts-session-complete",
+            serde_json::json!({ "audio_id": audio_id_clone }),
+        );
         let _ = app_handle.emit("tts-complete", ());
     });
 
-    Ok(())
+    Ok(audio_id)
 }
 
 /// Cancel active TTS streaming.
@@ -465,7 +500,6 @@ pub async fn skip_to_chunk(
         }
     };
 
-    // Cancel current
     {
         let mut cancel = state.tts_cancel.lock().unwrap();
         if let Some(sender) = cancel.take() {
@@ -481,7 +515,6 @@ pub async fn skip_to_chunk(
     let (cancel_tx, cancel_rx) = watch::channel(false);
     *state.tts_cancel.lock().unwrap() = Some(cancel_tx);
 
-    // Emit full chunk metadata so frontend stays in sync
     let chunk_infos: Vec<TtsChunkInfo> = chunks
         .iter()
         .enumerate()
@@ -592,20 +625,102 @@ pub async fn skip_to_chunk(
     Ok(())
 }
 
-/// Hide the read-aloud window.
+/// Replay cached TTS audio from disk. Emits the same events as live TTS
+/// so the existing frontend playback logic works unchanged.
 #[tauri::command]
-pub async fn hide_readaloud(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("readaloud") {
-        window.hide().map_err(|e| e.to_string())?;
+pub async fn replay_cached_tts(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    audio_id: String,
+) -> Result<(), String> {
+    // Cancel any existing TTS session
+    {
+        let mut cancel = state.tts_cancel.lock().unwrap();
+        if let Some(sender) = cancel.take() {
+            let _ = sender.send(true);
+        }
     }
-    Ok(())
-}
 
-/// Show the read-aloud window.
-#[tauri::command]
-pub async fn show_readaloud(app: AppHandle) -> Result<(), String> {
-    if let Some(window) = app.get_webview_window("readaloud") {
-        window.show().map_err(|e| e.to_string())?;
+    let cache_base = audio_cache_dir(&app)?;
+    let session_dir = cache_base.join(&audio_id);
+
+    if !session_dir.exists() {
+        return Err("Cached audio not found".to_string());
     }
+
+    // Discover chunk files
+    let mut chunk_files: Vec<(usize, PathBuf)> = Vec::new();
+    for entry in std::fs::read_dir(&session_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let name = entry.file_name().to_string_lossy().to_string();
+        if let Some(idx_str) = name
+            .strip_prefix("chunk_")
+            .and_then(|s| s.strip_suffix(".mp3"))
+        {
+            if let Ok(idx) = idx_str.parse::<usize>() {
+                chunk_files.push((idx, entry.path()));
+            }
+        }
+    }
+    chunk_files.sort_by_key(|(idx, _)| *idx);
+
+    if chunk_files.is_empty() {
+        return Err("No cached audio chunks found".to_string());
+    }
+
+    let total = chunk_files.len();
+
+    let (cancel_tx, cancel_rx) = watch::channel(false);
+    *state.tts_cancel.lock().unwrap() = Some(cancel_tx);
+
+    // Emit chunk metadata
+    let chunk_infos: Vec<TtsChunkInfo> = chunk_files
+        .iter()
+        .map(|(i, _)| TtsChunkInfo {
+            index: *i,
+            total,
+            preview: String::new(), // no text preview for cached replay
+        })
+        .collect();
+    let _ = app.emit("tts-chunks-ready", &chunk_infos);
+
+    let app_handle = app.clone();
+    tokio::spawn(async move {
+        for (idx, (i, path)) in chunk_files.iter().enumerate() {
+            if *cancel_rx.borrow() {
+                let _ = app_handle.emit("tts-stopped", ());
+                return;
+            }
+
+            let _ = app_handle.emit(
+                "tts-chunk-started",
+                serde_json::json!({ "index": i, "total": total, "preview": "" }),
+            );
+
+            let bytes = match std::fs::read(path) {
+                Ok(b) => b,
+                Err(e) => {
+                    let _ = app_handle.emit(
+                        "tts-error",
+                        serde_json::json!({ "message": format!("Failed to read cached chunk: {e}") }),
+                    );
+                    return;
+                }
+            };
+
+            let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+            let _ = app_handle.emit(
+                "tts-audio-data",
+                TtsAudioData {
+                    chunk_index: *i,
+                    data: encoded,
+                    is_last_chunk: idx + 1 == total,
+                },
+            );
+        }
+
+        let _ = app_handle.emit("tts-complete", ());
+    });
+
     Ok(())
 }

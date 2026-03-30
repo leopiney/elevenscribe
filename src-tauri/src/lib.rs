@@ -1,4 +1,5 @@
 mod commands;
+mod history;
 mod tray;
 mod tts;
 
@@ -84,8 +85,13 @@ pub fn run() {
             tts::start_tts,
             tts::stop_tts,
             tts::skip_to_chunk,
-            tts::hide_readaloud,
-            tts::show_readaloud,
+            tts::replay_cached_tts,
+            history::save_transcription,
+            history::save_readaloud,
+            history::get_history,
+            history::delete_history_entry,
+            history::clear_history,
+            history::get_cached_audio,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
@@ -141,7 +147,7 @@ async fn handle_toggle(app: &tauri::AppHandle) {
 }
 
 async fn handle_readaloud_toggle(app: &tauri::AppHandle) {
-    let Some(window) = app.get_webview_window("readaloud") else {
+    let Some(window) = app.get_webview_window("overlay") else {
         return;
     };
 
@@ -158,5 +164,6 @@ async fn handle_readaloud_toggle(app: &tauri::AppHandle) {
         let _ = window.show();
     }
 
+    let _ = window.set_focus();
     let _ = app.emit("toggle-readaloud", ());
 }

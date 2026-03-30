@@ -17,7 +17,6 @@ export default defineConfig(async () => ({
       input: {
         main: "index.html",
         overlay: "overlay.html",
-        readaloud: "readaloud.html",
       },
     },
   },

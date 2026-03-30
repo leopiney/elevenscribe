@@ -13,16 +13,19 @@
     "windows": [
       {
         "label": "main",
-        "title": "elevenscribe",
-        "width": 800,
-        "height": 600,
-        "visible": false
+        "title": "Elevenscribe",
+        "width": 480,
+        "height": 520,
+        "minWidth": 360,
+        "minHeight": 300,
+        "visible": false,
+        "resizable": true
       },
       {
         "label": "overlay",
         "title": "",
         "width": 480,
-        "height": 180,
+        "height": 240,
         "decorations": false,
         "alwaysOnTop": true,
         "transparent": true,
@@ -31,20 +34,6 @@
         "resizable": false,
         "focus": false,
         "url": "overlay.html"
-      },
-      {
-        "label": "readaloud",
-        "title": "",
-        "width": 480,
-        "height": 160,
-        "decorations": false,
-        "alwaysOnTop": true,
-        "transparent": true,
-        "skipTaskbar": true,
-        "visible": false,
-        "resizable": false,
-        "focus": false,
-        "url": "readaloud.html"
       }
     ],
     "macOSPrivateApi": true,

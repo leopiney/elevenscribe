@@ -186,6 +186,13 @@ export function useScribe() {
 
     audioLevel.value = 0;
 
+    // Fold any pending partial transcript into committed text so the
+    // clipboard write that follows always contains the full dictation.
+    if (partialText.value.trim()) {
+      committedText.value += partialText.value + " ";
+      partialText.value = "";
+    }
+
     // Clear all handlers before closing so spurious error/close events
     // from the abrupt teardown don't surface as user-visible errors
     if (ws) {

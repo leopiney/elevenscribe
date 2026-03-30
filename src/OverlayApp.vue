@@ -1,39 +1,69 @@
 <script setup lang="ts">
-import { ref } from "vue";
+import { ref, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
-import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { writeText, readText } from "@tauri-apps/plugin-clipboard-manager";
 import RecordingDot from "./components/RecordingDot.vue";
 import TranscriptDisplay from "./components/TranscriptDisplay.vue";
 import ActionBar from "./components/ActionBar.vue";
+import ChunkProgress from "./components/ChunkProgress.vue";
+import PlaybackControls from "./components/PlaybackControls.vue";
 import SetupScreen from "./components/SetupScreen.vue";
 import { useScribe } from "./composables/useScribe";
+import { useReadAloud } from "./composables/useReadAloud";
 import { useTauriEvents } from "./composables/useTauriEvents";
 
-const isRecording = ref(false);
+// ── Tab state ────────────────────────────────────────────────────────────────
+const activeTab = ref<"scribe" | "readaloud">("scribe");
+
+// ── Shared state ─────────────────────────────────────────────────────────────
 const needsSetup = ref(false);
 const errorMsg = ref("");
+
+// ── Scribe ───────────────────────────────────────────────────────────────────
+const isRecording = ref(false);
 const {
   partialText,
   committedText,
   micLabel,
-  error,
+  error: scribeError,
   audioLevel,
   needsMicPermission,
-  start,
-  stop,
+  start: scribeStart,
+  stop: scribeStop,
   acquireMic,
 } = useScribe();
+
+// ── Read Aloud ───────────────────────────────────────────────────────────────
+const readaloudErrorMsg = ref("");
+const readaloudText = ref(""); // text being read aloud (from clipboard)
+
+const {
+  isPlaying,
+  isPaused,
+  isLoading,
+  currentChunkIndex,
+  totalChunks,
+  chunkPreview,
+  error: readaloudError,
+  start: readaloudStart,
+  stop: readaloudStop,
+  pause,
+  resume,
+  prev,
+  next,
+  cleanup: readaloudCleanup,
+} = useReadAloud();
+
+// ── Scribe actions ───────────────────────────────────────────────────────────
 
 async function startRecording() {
   committedText.value = "";
   partialText.value = "";
   errorMsg.value = "";
   try {
-    await start();
+    await scribeStart();
     isRecording.value = true;
   } catch (err) {
-    // If mic permission is needed, don't show the raw error — the UI
-    // will show a "Grant Microphone" button instead.
     if (!needsMicPermission.value) {
       errorMsg.value = String(err);
     }
@@ -41,7 +71,6 @@ async function startRecording() {
   }
 }
 
-/** Called from the "Grant Microphone" button (user gesture context). */
 async function grantMicAndRecord() {
   errorMsg.value = "";
   try {
@@ -49,39 +78,39 @@ async function grantMicAndRecord() {
     await startRecording();
   } catch (err) {
     errorMsg.value = String(err);
-    console.error("[elevenscribe] grantMicAndRecord failed:", err);
   }
 }
 
-// Called by the Stop button — keeps the overlay visible so the user can
-// choose to Paste, Copy, or Dismiss via the ActionBar.
 async function stopRecording() {
   try {
-    await stop();
+    await scribeStop();
   } catch (err) {
     console.error("Error stopping recording:", err);
   }
   isRecording.value = false;
-  if (committedText.value.trim()) {
-    await writeText(committedText.value.trim()).catch(console.error);
+  const text = committedText.value.trim();
+  if (text) {
+    await writeText(text).catch(console.error);
+    await invoke("save_transcription", { text }).catch(console.error);
   }
 }
 
-// Called by the global shortcut — stops, copies to clipboard, then dismisses.
 async function stopAndDismiss() {
   try {
-    await stop();
+    await scribeStop();
   } catch (err) {
     console.error("Error stopping recording:", err);
   }
   isRecording.value = false;
-  if (committedText.value.trim()) {
-    await writeText(committedText.value.trim()).catch(console.error);
+  const text = committedText.value.trim();
+  if (text) {
+    await writeText(text).catch(console.error);
+    await invoke("save_transcription", { text }).catch(console.error);
   }
   await invoke("hide_overlay").catch(console.error);
 }
 
-async function toggle() {
+async function toggleScribe() {
   if (needsSetup.value) return;
 
   if (isRecording.value) {
@@ -95,11 +124,7 @@ async function toggle() {
     return;
   }
 
-  await startRecording();
-}
-
-async function onSetupDone() {
-  needsSetup.value = false;
+  activeTab.value = "scribe";
   await startRecording();
 }
 
@@ -109,7 +134,6 @@ async function paste() {
   await writeText(text);
   await invoke("paste_text", { text }).catch((err: unknown) => {
     errorMsg.value = String(err);
-    console.error("[elevenscribe] paste_text failed:", err);
   });
 }
 
@@ -120,16 +144,99 @@ async function copyOnly() {
   await invoke("hide_overlay").catch(console.error);
 }
 
-async function dismiss() {
+// ── Read Aloud actions ───────────────────────────────────────────────────────
+
+async function startReadAloud() {
+  readaloudErrorMsg.value = "";
+  readaloudText.value = "";
+  try {
+    const clipboardText = await readText();
+    if (!clipboardText || !clipboardText.trim()) {
+      readaloudErrorMsg.value = "Clipboard is empty";
+      return;
+    }
+    readaloudText.value = clipboardText.trim();
+    const audioId = await readaloudStart(clipboardText);
+    // Save history immediately — audio chunks are cached to disk as they stream,
+    // so even partial sessions are preserved if the user stops early.
+    if (audioId) {
+      await invoke("save_readaloud", { text: readaloudText.value, audioId }).catch(console.error);
+    }
+  } catch (err) {
+    readaloudErrorMsg.value = String(err);
+    console.error("[readaloud] start failed:", err);
+  }
+}
+
+async function toggleReadAloud() {
+  if (needsSetup.value) return;
+
+  if (isPlaying.value) {
+    await readaloudStop();
+    await startReadAloud();
+    return;
+  }
+
+  const hasKey = await invoke<boolean>("has_api_key");
+  if (!hasKey) {
+    needsSetup.value = true;
+    return;
+  }
+
+  activeTab.value = "readaloud";
+  await startReadAloud();
+}
+
+async function stopReadAloudAndDismiss() {
+  await readaloudStop();
   await invoke("hide_overlay").catch(console.error);
 }
 
-// Check key status immediately when the webview first loads
+function togglePause() {
+  if (isPaused.value) {
+    resume();
+  } else {
+    pause();
+  }
+}
+
+// ── Shared ───────────────────────────────────────────────────────────────────
+
+async function dismiss() {
+  if (isRecording.value) {
+    try {
+      await scribeStop();
+    } catch {
+      /* ignore */
+    }
+    isRecording.value = false;
+  }
+  if (isPlaying.value) {
+    await readaloudStop();
+  }
+  await invoke("hide_overlay").catch(console.error);
+}
+
+async function onSetupDone() {
+  needsSetup.value = false;
+  if (activeTab.value === "scribe") {
+    await startRecording();
+  } else {
+    await startReadAloud();
+  }
+}
+
+onUnmounted(() => {
+  readaloudCleanup();
+});
+
+// Check key status on load
 invoke<boolean>("has_api_key").then((hasKey) => {
   needsSetup.value = !hasKey;
 });
 
-useTauriEvents("toggle-recording", toggle);
+useTauriEvents("toggle-recording", toggleScribe);
+useTauriEvents("toggle-readaloud", toggleReadAloud);
 useTauriEvents("show-setup", () => {
   needsSetup.value = true;
 });
@@ -141,37 +248,124 @@ useTauriEvents("show-setup", () => {
       <SetupScreen v-if="needsSetup" @done="onSetupDone" />
 
       <template v-else>
-        <div class="card-header">
-          <RecordingDot :active="isRecording" />
-          <span class="status-label">
-            <span v-if="needsMicPermission" class="error-text">Microphone access required</span>
-            <span v-else-if="errorMsg || error" class="error-text">{{ errorMsg || error }}</span>
-            <template v-else-if="isRecording">
-              Recording…<template v-if="micLabel"> · {{ micLabel }}</template>
-            </template>
-            <template v-else>Ready</template>
-          </span>
-          <button v-if="needsMicPermission" class="btn-toggle btn-grant" @click="grantMicAndRecord">
-            Grant Microphone
+        <!-- Tab bar -->
+        <div class="tab-bar">
+          <button
+            class="tab"
+            :class="{ active: activeTab === 'scribe' }"
+            @click="activeTab = 'scribe'"
+          >
+            Scribe
           </button>
-          <button v-else class="btn-toggle" @click="isRecording ? stopRecording() : toggle()">
-            {{ isRecording ? "Stop" : "Record" }}
+          <button
+            class="tab"
+            :class="{ active: activeTab === 'readaloud' }"
+            @click="activeTab = 'readaloud'"
+          >
+            Read Aloud
           </button>
+          <div class="tab-spacer"></div>
+
+          <!-- Scribe controls -->
+          <template v-if="activeTab === 'scribe'">
+            <button
+              v-if="needsMicPermission"
+              class="btn-toggle btn-grant"
+              @click="grantMicAndRecord"
+            >
+              Grant Microphone
+            </button>
+            <button
+              v-else
+              class="btn-toggle"
+              @click="isRecording ? stopRecording() : toggleScribe()"
+            >
+              {{ isRecording ? "Stop" : "Record" }}
+            </button>
+          </template>
+
+          <!-- Read Aloud controls -->
+          <template v-if="activeTab === 'readaloud'">
+            <button
+              class="btn-toggle"
+              @click="isPlaying ? stopReadAloudAndDismiss() : toggleReadAloud()"
+            >
+              {{ isPlaying ? "Stop" : "Start" }}
+            </button>
+          </template>
+
+          <button class="btn-close" title="Close" @click="dismiss">&times;</button>
         </div>
-        <div v-if="isRecording" class="level-bar-track">
-          <div class="level-bar-fill" :style="{ width: audioLevel * 100 + '%' }"></div>
-        </div>
-        <TranscriptDisplay
-          :is-recording="isRecording"
-          :partial-text="partialText"
-          :committed-text="committedText"
-        />
-        <ActionBar
-          v-if="!isRecording && committedText.trim()"
-          @paste="paste"
-          @copy="copyOnly"
-          @dismiss="dismiss"
-        />
+
+        <!-- SCRIBE TAB -->
+        <template v-if="activeTab === 'scribe'">
+          <div class="card-status">
+            <RecordingDot :active="isRecording" />
+            <span class="status-label">
+              <span v-if="needsMicPermission" class="error-text">Microphone access required</span>
+              <span v-else-if="errorMsg || scribeError" class="error-text">{{
+                errorMsg || scribeError
+              }}</span>
+              <template v-else-if="isRecording">
+                Recording…<template v-if="micLabel"> · {{ micLabel }}</template>
+              </template>
+              <template v-else>Ready</template>
+            </span>
+          </div>
+          <div v-if="isRecording" class="level-bar-track">
+            <div class="level-bar-fill" :style="{ width: audioLevel * 100 + '%' }"></div>
+          </div>
+          <TranscriptDisplay
+            :is-recording="isRecording"
+            :partial-text="partialText"
+            :committed-text="committedText"
+          />
+          <ActionBar
+            v-if="!isRecording && committedText.trim()"
+            @paste="paste"
+            @copy="copyOnly"
+            @dismiss="dismiss"
+          />
+        </template>
+
+        <!-- READ ALOUD TAB -->
+        <template v-if="activeTab === 'readaloud'">
+          <div class="card-status">
+            <div class="speaker-dot" :class="{ active: isPlaying && !isPaused }"></div>
+            <span class="status-label">
+              <span v-if="readaloudErrorMsg || readaloudError" class="error-text">{{
+                readaloudErrorMsg || readaloudError
+              }}</span>
+              <template v-else-if="isPlaying">
+                Reading aloud
+                <template v-if="totalChunks > 1">
+                  · {{ currentChunkIndex + 1 }}/{{ totalChunks }}
+                </template>
+                <template v-if="isPaused"> (paused)</template>
+              </template>
+              <template v-else>Ready · ⌥⇧Space to read clipboard</template>
+            </span>
+          </div>
+
+          <ChunkProgress
+            v-if="isPlaying || totalChunks > 0"
+            :current-index="currentChunkIndex"
+            :total="totalChunks"
+            :preview="chunkPreview"
+            :is-loading="isLoading"
+          />
+
+          <PlaybackControls
+            v-if="isPlaying"
+            :is-paused="isPaused"
+            :can-prev="currentChunkIndex > 0"
+            :can-next="currentChunkIndex < totalChunks - 1"
+            @prev="prev"
+            @next="next"
+            @toggle-pause="togglePause"
+            @dismiss="dismiss"
+          />
+        </template>
       </template>
     </div>
   </div>
@@ -215,7 +409,47 @@ body {
   overflow: hidden;
 }
 
-.card-header {
+/* ── Tab bar ────────────────────────────────────────────────────────────── */
+
+.tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+  flex-shrink: 0;
+}
+
+.tab {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+
+.tab:hover {
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tab.active {
+  color: white;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.tab-spacer {
+  flex: 1;
+}
+
+/* ── Status row ─────────────────────────────────────────────────────────── */
+
+.card-status {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -236,6 +470,8 @@ body {
   color: #f87171;
 }
 
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+
 .btn-toggle {
   background: rgba(255, 255, 255, 0.1);
   border: 1px solid rgba(255, 255, 255, 0.2);
@@ -252,6 +488,26 @@ body {
   background: rgba(255, 255, 255, 0.2);
 }
 
+.btn-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 6px;
+  flex-shrink: 0;
+  transition:
+    color 0.15s,
+    background 0.15s;
+}
+
+.btn-close:hover {
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .btn-grant {
   background: rgba(99, 102, 241, 0.75);
   border-color: rgba(99, 102, 241, 0.9);
@@ -260,6 +516,8 @@ body {
 .btn-grant:hover {
   background: rgba(99, 102, 241, 1);
 }
+
+/* ── Level bar ──────────────────────────────────────────────────────────── */
 
 .level-bar-track {
   height: 3px;
@@ -275,5 +533,33 @@ body {
   border-radius: 2px;
   background: #34d399;
   transition: width 0.05s linear;
+}
+
+/* ── Speaker dot (read aloud) ───────────────────────────────────────────── */
+
+.speaker-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.speaker-dot.active {
+  background: #6366f1;
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scale(0.85);
+  }
 }
 </style>

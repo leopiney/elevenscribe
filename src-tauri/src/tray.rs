@@ -59,20 +59,25 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .checked(false)
         .build(app)?;
 
+    let history_item = MenuItemBuilder::with_id("history", "History").build(app)?;
+
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let sep3 = PredefinedMenuItem::separator(app)?;
+    let sep4 = PredefinedMenuItem::separator(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit Elevenscribe").build(app)?;
 
     let menu = MenuBuilder::new(app)
         .items(&[
             &api_key_item,
             &sep1,
-            &voice_submenu,
+            &history_item,
             &sep2,
+            &voice_submenu,
+            &sep3,
             &duck_item,
             &media_item,
-            &sep3,
+            &sep4,
             &quit,
         ])
         .build()?;
@@ -114,6 +119,15 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             }
 
             match id {
+                "history" => {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        if let Some(w) = app.get_webview_window("main") {
+                            let _ = w.show();
+                            let _ = w.set_focus();
+                        }
+                    });
+                }
                 "api_key" => {
                     let has_key = !app_state.api_key.lock().unwrap().is_empty();
                     let app = app.clone();

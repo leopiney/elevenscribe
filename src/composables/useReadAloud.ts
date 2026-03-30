@@ -193,7 +193,39 @@ export function useReadAloud() {
     isPaused.value = false;
     isLoading.value = true;
 
-    await invoke("start_tts", { text });
+    return await invoke<string>("start_tts", { text });
+  }
+
+  async function startCachedReplay(audioId: string) {
+    error.value = "";
+    fullText = "";
+    audioBuffers.clear();
+    currentChunkIndex.value = 0;
+    totalChunks.value = 0;
+    chunkPreview.value = "";
+
+    await setupListeners();
+
+    if (currentSource) {
+      try {
+        currentSource.onended = null;
+        currentSource.stop();
+      } catch {
+        // ignore
+      }
+      currentSource = null;
+    }
+
+    if (audioContext) {
+      await audioContext.close().catch(() => undefined);
+      audioContext = null;
+    }
+
+    isPlaying.value = true;
+    isPaused.value = false;
+    isLoading.value = true;
+
+    await invoke("replay_cached_tts", { audioId });
   }
 
   async function stop() {
@@ -287,6 +319,7 @@ export function useReadAloud() {
     chunkPreview,
     error,
     start,
+    startCachedReplay,
     stop,
     pause,
     resume,
