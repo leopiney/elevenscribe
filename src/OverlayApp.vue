@@ -248,7 +248,7 @@ useTauriEvents("show-setup", () => {
       <SetupScreen v-if="needsSetup" @done="onSetupDone" />
 
       <template v-else>
-        <!-- Tab bar -->
+        <!-- Tab bar (drag region for moving the window) -->
         <div class="tab-bar">
           <button
             class="tab"
@@ -376,31 +376,23 @@ html,
 body {
   margin: 0;
   padding: 0;
-  background: transparent;
+  background: rgba(20, 20, 20, 0.95);
   overflow: hidden;
 }
 </style>
 
 <style scoped>
 .overlay-wrapper {
-  display: flex;
-  justify-content: center;
-  align-items: center;
   width: 100vw;
   height: 100vh;
-  padding: 12px;
   box-sizing: border-box;
 }
 
 .card {
-  background: rgba(20, 20, 20, 0.88);
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
-  border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
   color: white;
   width: 100%;
-  max-height: calc(100vh - 24px);
+  height: 100%;
   padding: 14px 16px;
   box-sizing: border-box;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
