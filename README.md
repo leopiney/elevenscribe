@@ -5,12 +5,15 @@
 <h1 align="center">Elevenscribe</h1>
 
 <p align="center">
-  Press a hotkey, speak, and your words are typed wherever your cursor is.
+  Speech-to-text and text-to-speech, one hotkey away.
 </p>
 
 ---
 
-Elevenscribe is a macOS menubar app that turns your voice into text using the [ElevenLabs Scribe](https://elevenlabs.io/blog/introducing-scribe-v2) real-time API. Press **⌘ Shift Space** to start recording, speak, then press **⌘ Shift Space** again to stop — the transcript is pasted directly into the active app.
+Elevenscribe is a macOS menubar app powered by [ElevenLabs](https://elevenlabs.io) that gives you **speech-to-text** and **text-to-speech** from anywhere on your Mac.
+
+- **Speech-to-Text** — Press **⌘ Shift Space** to start recording, speak, then press **⌘ Shift Space** again to stop. The transcript is pasted directly into the active app using the [Scribe](https://elevenlabs.io/blog/introducing-scribe-v2) real-time API.
+- **Text-to-Speech** — Copy any text to your clipboard and have it read aloud using ElevenLabs voices.
 
 <p align="center">
   <img src="docs/screenshot.png" width="600" alt="Elevenscribe overlay showing live transcription while a YouTube video plays" />
@@ -19,7 +22,7 @@ Elevenscribe is a macOS menubar app that turns your voice into text using the [E
 - Floating overlay shows live transcription as you speak
 - Automatically ducks system volume while recording
 - Runs silently in the menu bar, always one shortcut away
-- Requires an [ElevenLabs API key](https://elevenlabs.io/blog/introducing-scribe-v2)
+- Requires an [ElevenLabs API key](https://elevenlabs.io/app/settings/api-keys)
 
 ## Install from Releases
 
