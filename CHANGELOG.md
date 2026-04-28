@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/leopiney/elevenscribe/compare/elevenscribe-v0.3.0...elevenscribe-v0.3.1) (2026-04-28)
+
+
+### Bug Fixes
+
+* ensure shortcuts remain responsive after STT/TTS sessions ([6585fa0](https://github.com/leopiney/elevenscribe/commit/6585fa0ffc5012a66767093d8240be708011e1e5))
+
 ## [0.3.0](https://github.com/leopiney/elevenscribe/compare/elevenscribe-v0.2.0...elevenscribe-v0.3.0) (2026-03-30)
 
 
