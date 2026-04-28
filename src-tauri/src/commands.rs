@@ -16,6 +16,12 @@ pub fn has_api_key(state: State<'_, AppState>) -> bool {
     !state.api_key.lock().unwrap().is_empty()
 }
 
+/// Returns the configured API key for use by the local renderer.
+#[tauri::command]
+pub fn get_api_key(state: State<'_, AppState>) -> String {
+    state.api_key.lock().unwrap().clone()
+}
+
 /// Persist the API key to the user config file and update the in-memory state.
 /// Config is stored at ~/Library/Application Support/{identifier}/config.json.
 #[tauri::command]

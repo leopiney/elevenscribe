@@ -16,7 +16,6 @@ pub struct AppState {
     // Read Aloud state
     pub selected_voice_id: Mutex<String>,
     pub cached_voices: Mutex<Vec<tts::VoiceInfo>>,
-    pub tts_cancel: Mutex<Option<tokio::sync::watch::Sender<bool>>>,
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -53,7 +52,6 @@ pub fn run() {
             was_media_playing: Mutex::new(false),
             selected_voice_id: Mutex::new(String::new()),
             cached_voices: Mutex::new(Vec::new()),
-            tts_cancel: Mutex::new(None),
         })
         .setup(|app| {
             if let Ok(config_dir) = app.path().app_config_dir() {
@@ -70,6 +68,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::has_api_key,
+            commands::get_api_key,
             commands::save_api_key,
             commands::get_scribe_token,
             commands::paste_text,
@@ -82,10 +81,7 @@ pub fn run() {
             tts::list_voices,
             tts::get_selected_voice,
             tts::set_selected_voice,
-            tts::start_tts,
-            tts::stop_tts,
-            tts::skip_to_chunk,
-            tts::replay_cached_tts,
+            tts::cache_tts_chunk,
             history::save_transcription,
             history::save_readaloud,
             history::get_history,
