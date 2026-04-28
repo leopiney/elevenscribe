@@ -152,9 +152,16 @@ export function useReadAloud() {
         }
         // If buffer not ready yet, it will be played when tts-audio-data arrives
       } else {
-        // All chunks done
+        // All chunks done — fully reset so the next start has a clean slate
         isPlaying.value = false;
+        isPaused.value = false;
+        isLoading.value = false;
         currentSource = null;
+        audioBuffers.clear();
+        if (audioContext) {
+          audioContext.close().catch(() => undefined);
+          audioContext = null;
+        }
       }
     };
 

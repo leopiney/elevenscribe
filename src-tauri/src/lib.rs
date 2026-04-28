@@ -119,14 +119,11 @@ fn load_voice_from_config(config_dir: &std::path::Path) -> Option<String> {
     }
 }
 
-async fn handle_toggle(app: &tauri::AppHandle) {
-    let Some(window) = app.get_webview_window("overlay") else {
-        return;
-    };
+async fn show_overlay_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> {
+    let window = app.get_webview_window("overlay")?;
+    let was_hidden = !window.is_visible().unwrap_or(true);
 
-    // Only show the window here — hiding is owned by the frontend so the
-    // clipboard write always completes before focus shifts back.
-    if !window.is_visible().unwrap_or(true) {
+    if was_hidden {
         if let Ok(Some(monitor)) = window.current_monitor() {
             let sw = monitor.size().width as i32;
             let sh = monitor.size().height as i32;
@@ -137,33 +134,28 @@ async fn handle_toggle(app: &tauri::AppHandle) {
             }
         }
         let _ = window.show();
+        // Give the WebView a beat to resume JS execution after being hidden
+        // — macOS WebKit throttles/suspends offscreen WebViews and the first
+        // emit after show() can otherwise be dropped or queued indefinitely.
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
     }
 
-    // Focus the WebView so WebKit treats the subsequent getUserMedia call
-    // as having user activation (required on macOS Tahoe+).
+    // Focus the WebView so WebKit treats subsequent getUserMedia / AudioContext
+    // calls as having user activation (required on macOS Tahoe+).
     let _ = window.set_focus();
+    Some(window)
+}
 
+pub async fn handle_toggle(app: &tauri::AppHandle) {
+    if show_overlay_window(app).await.is_none() {
+        return;
+    }
     let _ = app.emit("toggle-recording", ());
 }
 
-async fn handle_readaloud_toggle(app: &tauri::AppHandle) {
-    let Some(window) = app.get_webview_window("overlay") else {
+pub async fn handle_readaloud_toggle(app: &tauri::AppHandle) {
+    if show_overlay_window(app).await.is_none() {
         return;
-    };
-
-    if !window.is_visible().unwrap_or(true) {
-        if let Ok(Some(monitor)) = window.current_monitor() {
-            let sw = monitor.size().width as i32;
-            let sh = monitor.size().height as i32;
-            if let Ok(outer) = window.outer_size() {
-                let x = (sw - outer.width as i32) / 2;
-                let y = sh - outer.height as i32 - 80;
-                let _ = window.set_position(tauri::PhysicalPosition { x, y });
-            }
-        }
-        let _ = window.show();
     }
-
-    let _ = window.set_focus();
     let _ = app.emit("toggle-readaloud", ());
 }

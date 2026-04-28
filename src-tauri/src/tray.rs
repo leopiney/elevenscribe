@@ -48,6 +48,13 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 
     let api_key_item = MenuItemBuilder::with_id("api_key", api_key_label(&key)).build(app)?;
 
+    let start_scribe_item = MenuItemBuilder::with_id("start_scribe", "Start Recording")
+        .accelerator("CmdOrCtrl+Shift+Space")
+        .build(app)?;
+    let start_readaloud_item = MenuItemBuilder::with_id("start_readaloud", "Read Clipboard Aloud")
+        .accelerator("Alt+Shift+Space")
+        .build(app)?;
+
     // Build voice submenu with defaults
     let voice_submenu = build_voice_submenu(app, &selected_voice)?;
 
@@ -67,8 +74,12 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let sep4 = PredefinedMenuItem::separator(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit Elevenscribe").build(app)?;
 
+    let sep0 = PredefinedMenuItem::separator(app)?;
     let menu = MenuBuilder::new(app)
         .items(&[
+            &start_scribe_item,
+            &start_readaloud_item,
+            &sep0,
             &api_key_item,
             &sep1,
             &history_item,
@@ -119,6 +130,18 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             }
 
             match id {
+                "start_scribe" => {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        crate::handle_toggle(&app).await;
+                    });
+                }
+                "start_readaloud" => {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        crate::handle_readaloud_toggle(&app).await;
+                    });
+                }
                 "history" => {
                     let app = app.clone();
                     tauri::async_runtime::spawn(async move {
