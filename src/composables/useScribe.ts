@@ -1,9 +1,10 @@
 import { ref } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 
-// Persistent mic stream — acquired once (from a user gesture) and reused
-// across recording sessions so the global shortcut flow works without
-// needing a fresh getUserMedia call (which requires user activation).
+// Active mic stream — held only while a session is running, then released
+// in stop() so the macOS mic indicator turns off when not transcribing.
+// Once OS-level mic permission is granted, getUserMedia works for the
+// global-shortcut flow without needing fresh user activation each time.
 let persistentStream: MediaStream | null = null;
 
 export function useScribe() {
@@ -59,117 +60,124 @@ export function useScribe() {
       throw e;
     }
 
-    await invoke("duck_volume").catch((e) => console.warn("[scribe] duck_volume failed:", e));
-    await invoke("stop_media").catch((e) => console.warn("[scribe] stop_media failed:", e));
+    try {
+      await invoke("duck_volume").catch((e) => console.warn("[scribe] duck_volume failed:", e));
+      await invoke("stop_media").catch((e) => console.warn("[scribe] stop_media failed:", e));
 
-    // ── 1. Get ephemeral token ──────────────────────────────────────────────
-    console.log("[scribe] fetching token…");
-    const token = await invoke<string>("get_scribe_token");
-    console.log("[scribe] token received:", token.slice(0, 8) + "…");
+      // ── 1. Get ephemeral token ──────────────────────────────────────────────
+      console.log("[scribe] fetching token…");
+      const token = await invoke<string>("get_scribe_token");
+      console.log("[scribe] token received:", token.slice(0, 8) + "…");
 
-    // ── 2. Open WebSocket ───────────────────────────────────────────────────
-    const url = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?token=${encodeURIComponent(token)}&model_id=scribe_v2_realtime&commit_strategy=vad`;
-    console.log("[scribe] connecting WebSocket…");
-    ws = new WebSocket(url);
-    ws.binaryType = "arraybuffer";
+      // ── 2. Open WebSocket ───────────────────────────────────────────────────
+      const url = `wss://api.elevenlabs.io/v1/speech-to-text/realtime?token=${encodeURIComponent(token)}&model_id=scribe_v2_realtime&commit_strategy=vad`;
+      console.log("[scribe] connecting WebSocket…");
+      ws = new WebSocket(url);
+      ws.binaryType = "arraybuffer";
 
-    await new Promise<void>((resolve, reject) => {
-      ws!.onopen = () => {
-        console.log("[scribe] WebSocket opened");
-        resolve();
-      };
-      ws!.onerror = (e) => {
-        console.error("[scribe] WebSocket handshake error:", e);
-        reject(new Error("WebSocket connection failed"));
-      };
-    });
-
-    // Log every message from the server (transcripts, session events, errors)
-    ws.onmessage = (event) => {
-      console.log("[scribe] ←", event.data);
-      try {
-        const data = JSON.parse(event.data as string) as {
-          message_type: string;
-          text?: string;
+      await new Promise<void>((resolve, reject) => {
+        ws!.onopen = () => {
+          console.log("[scribe] WebSocket opened");
+          resolve();
         };
-        if (data.message_type === "partial_transcript" && data.text !== undefined) {
-          partialText.value = data.text;
-        } else if (
-          (data.message_type === "committed_transcript" ||
-            data.message_type === "committed_transcript_with_timestamps") &&
-          data.text !== undefined
-        ) {
-          committedText.value += data.text + " ";
-          partialText.value = "";
+        ws!.onerror = (e) => {
+          console.error("[scribe] WebSocket handshake error:", e);
+          reject(new Error("WebSocket connection failed"));
+        };
+      });
+
+      // Log every message from the server (transcripts, session events, errors)
+      ws.onmessage = (event) => {
+        console.log("[scribe] ←", event.data);
+        try {
+          const data = JSON.parse(event.data as string) as {
+            message_type: string;
+            text?: string;
+          };
+          if (data.message_type === "partial_transcript" && data.text !== undefined) {
+            partialText.value = data.text;
+          } else if (
+            (data.message_type === "committed_transcript" ||
+              data.message_type === "committed_transcript_with_timestamps") &&
+            data.text !== undefined
+          ) {
+            committedText.value += data.text + " ";
+            partialText.value = "";
+          }
+        } catch {
+          // ignore malformed messages
         }
-      } catch {
-        // ignore malformed messages
-      }
-    };
+      };
 
-    ws.onclose = (e) => {
-      console.warn("[scribe] WebSocket closed — code:", e.code, "reason:", e.reason);
-    };
+      ws.onclose = (e) => {
+        console.warn("[scribe] WebSocket closed — code:", e.code, "reason:", e.reason);
+      };
 
-    ws.onerror = (e) => {
-      console.error("[scribe] WebSocket error:", e);
-      error.value = "Connection error — see console";
-    };
+      ws.onerror = (e) => {
+        console.error("[scribe] WebSocket error:", e);
+        error.value = "Connection error — see console";
+      };
 
-    // ── 3. Build audio pipeline from persistent stream ────────────────────
-    audioContext = new AudioContext({ sampleRate: 16000 });
-    console.log(
-      "[scribe] AudioContext state:",
-      audioContext.state,
-      "/ actual sampleRate:",
-      audioContext.sampleRate
-    );
-
-    // AudioContext can start suspended on some WebViews — resume it explicitly
-    if (audioContext.state === "suspended") {
-      await audioContext.resume();
-      console.log("[scribe] AudioContext resumed");
-    }
-
-    const source = audioContext.createMediaStreamSource(stream);
-    // 4096 samples @ 16 kHz ≈ 256 ms per chunk
-    processor = audioContext.createScriptProcessor(4096, 1, 1);
-
-    let chunksSent = 0;
-
-    processor.onaudioprocess = (e) => {
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-
-      const float32 = e.inputBuffer.getChannelData(0);
-
-      // Compute RMS for the level meter
-      let sum = 0;
-      for (let i = 0; i < float32.length; i++) sum += float32[i] * float32[i];
-      const rms = Math.sqrt(sum / float32.length);
-      audioLevel.value = Math.min(1, rms * 8); // scale up for visibility
-
-      const int16 = float32ToInt16(float32);
-      const audio = arrayBufferToBase64(int16.buffer);
-
-      // Log first 3 chunks and then every 50th to avoid flooding
-      if (chunksSent < 3 || chunksSent % 50 === 0) {
-        console.log(
-          `[scribe] → chunk #${chunksSent} | RMS: ${rms.toFixed(4)} | bytes: ${int16.byteLength}`
-        );
-      }
-      chunksSent++;
-
-      ws.send(
-        JSON.stringify({
-          message_type: "input_audio_chunk",
-          audio_base_64: audio,
-        })
+      // ── 3. Build audio pipeline from the active stream ────────────────────
+      audioContext = new AudioContext({ sampleRate: 16000 });
+      console.log(
+        "[scribe] AudioContext state:",
+        audioContext.state,
+        "/ actual sampleRate:",
+        audioContext.sampleRate
       );
-    };
 
-    source.connect(processor);
-    processor.connect(audioContext.destination);
-    console.log("[scribe] audio pipeline active");
+      // AudioContext can start suspended on some WebViews — resume it explicitly
+      if (audioContext.state === "suspended") {
+        await audioContext.resume();
+        console.log("[scribe] AudioContext resumed");
+      }
+
+      const source = audioContext.createMediaStreamSource(stream);
+      // 4096 samples @ 16 kHz ≈ 256 ms per chunk
+      processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+      let chunksSent = 0;
+
+      processor.onaudioprocess = (e) => {
+        if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+        const float32 = e.inputBuffer.getChannelData(0);
+
+        // Compute RMS for the level meter
+        let sum = 0;
+        for (let i = 0; i < float32.length; i++) sum += float32[i] * float32[i];
+        const rms = Math.sqrt(sum / float32.length);
+        audioLevel.value = Math.min(1, rms * 8); // scale up for visibility
+
+        const int16 = float32ToInt16(float32);
+        const audio = arrayBufferToBase64(int16.buffer);
+
+        // Log first 3 chunks and then every 50th to avoid flooding
+        if (chunksSent < 3 || chunksSent % 50 === 0) {
+          console.log(
+            `[scribe] → chunk #${chunksSent} | RMS: ${rms.toFixed(4)} | bytes: ${int16.byteLength}`
+          );
+        }
+        chunksSent++;
+
+        ws.send(
+          JSON.stringify({
+            message_type: "input_audio_chunk",
+            audio_base_64: audio,
+          })
+        );
+      };
+
+      source.connect(processor);
+      processor.connect(audioContext.destination);
+      console.log("[scribe] audio pipeline active");
+    } catch (e) {
+      // Release the mic and any partial pipeline so the macOS indicator
+      // doesn't linger if start fails after acquireMic.
+      await stop();
+      throw e;
+    }
   }
 
   async function stop() {
@@ -177,12 +185,18 @@ export function useScribe() {
     await invoke("restore_volume").catch((e) => console.warn("[scribe] restore_volume failed:", e));
     await invoke("resume_media").catch((e) => console.warn("[scribe] resume_media failed:", e));
 
-    // Disconnect audio pipeline but keep the persistent mic stream alive
+    // Disconnect audio pipeline
     processor?.disconnect();
     processor = null;
 
     await audioContext?.close().catch(() => undefined);
     audioContext = null;
+
+    // Stop the mic tracks so macOS turns off its capture indicator.
+    if (persistentStream) {
+      for (const track of persistentStream.getTracks()) track.stop();
+      persistentStream = null;
+    }
 
     audioLevel.value = 0;
 

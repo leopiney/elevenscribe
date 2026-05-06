@@ -228,6 +228,7 @@ async function onSetupDone() {
 
 onUnmounted(() => {
   readaloudCleanup();
+  scribeStop().catch(() => undefined);
 });
 
 // Check key status on load
