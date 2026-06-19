@@ -2,7 +2,7 @@ use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use serde::Deserialize;
 use tauri::{AppHandle, Manager, State};
 
-use crate::tray::{api_key_label, TrayState};
+use crate::tray::{activity_label, api_key_label, TrayState};
 use crate::AppState;
 
 #[derive(Deserialize)]
@@ -108,11 +108,14 @@ pub async fn duck_volume(state: State<'_, AppState>) -> Result<(), String> {
 }
 
 /// Restore the system output volume to the value saved before recording started.
-#[tauri::command]
-pub async fn restore_volume(state: State<'_, AppState>) -> Result<(), String> {
-    let saved = *state.saved_volume.lock().unwrap();
+/// Idempotent: a no-op when no volume was saved, so it is safe to call from the
+/// window-close handler, the Reset action, and the frontend stop path alike.
+pub async fn restore_volume_inner(state: &AppState) -> Result<(), String> {
+    // Take-and-clear under a single lock so concurrent callers (the window-close
+    // handler and the frontend stop path) can't both run the restore — exactly
+    // one wins and the other becomes a true no-op.
+    let saved = state.saved_volume.lock().unwrap().take();
     if let Some(volume) = saved {
-        *state.saved_volume.lock().unwrap() = None;
         tokio::process::Command::new("/usr/bin/osascript")
             .arg("-e")
             .arg(format!("set volume output volume {volume}"))
@@ -121,6 +124,11 @@ pub async fn restore_volume(state: State<'_, AppState>) -> Result<(), String> {
             .map_err(|e| e.to_string())?;
     }
     Ok(())
+}
+
+#[tauri::command]
+pub async fn restore_volume(state: State<'_, AppState>) -> Result<(), String> {
+    restore_volume_inner(state.inner()).await
 }
 
 /// Pause any currently playing media (Music, Spotify, Podcasts) before recording.
@@ -173,14 +181,18 @@ return wasPlaying
 }
 
 /// Resume media that was playing before recording started.
-#[tauri::command]
-pub async fn resume_media(state: State<'_, AppState>) -> Result<(), String> {
-    let was_playing = *state.was_media_playing.lock().unwrap();
+/// Idempotent: a no-op when nothing was paused, so it is safe to call from the
+/// window-close handler, the Reset action, and the frontend stop path alike.
+pub async fn resume_media_inner(state: &AppState) -> Result<(), String> {
+    // Take-and-clear atomically (see restore_volume_inner) so the resume
+    // AppleScript runs at most once across concurrent callers.
+    let was_playing = {
+        let mut guard = state.was_media_playing.lock().unwrap();
+        std::mem::replace(&mut *guard, false)
+    };
     if !was_playing {
         return Ok(());
     }
-
-    *state.was_media_playing.lock().unwrap() = false;
 
     let script = r#"
 if application "Music" is running then
@@ -208,6 +220,30 @@ end if
         .map_err(|e| e.to_string())?;
 
     Ok(())
+}
+
+#[tauri::command]
+pub async fn resume_media(state: State<'_, AppState>) -> Result<(), String> {
+    resume_media_inner(state.inner()).await
+}
+
+/// Update the tray status indicator to reflect the overlay's current activity.
+/// `kind` is one of "idle" | "recording" | "reading". Called by the frontend on
+/// every state transition so the menu always shows the true current state.
+#[tauri::command]
+pub fn set_activity(app: AppHandle, kind: String) {
+    if let Some(tray_state) = app.try_state::<TrayState>() {
+        let _ = tray_state.status_item.set_text(activity_label(&kind));
+    }
+}
+
+/// Return and clear any shortcut action that was queued while the overlay was
+/// being rebuilt. A freshly-rebuilt overlay's WebView isn't listening yet when
+/// the triggering shortcut fires, so the action is stashed and the overlay
+/// pulls it on mount — making the self-heal recovery work on the first press.
+#[tauri::command]
+pub fn take_pending_action(state: State<'_, AppState>) -> Option<String> {
+    state.pending_action.lock().unwrap().take()
 }
 
 /// Hide the floating overlay window.

@@ -31,6 +31,7 @@ export function useReadAloud() {
 
   let client: ElevenLabsClient | null = null;
   let audioEl: HTMLAudioElement | null = null;
+  let objectUrl: string | null = null;
   let mediaSource: MediaSource | null = null;
   let sourceBuffer: SourceBuffer | null = null;
   let abortController: AbortController | null = null;
@@ -126,7 +127,8 @@ export function useReadAloud() {
     audioEl = new Audio();
     audioEl.autoplay = true;
     mediaSource = new MediaSource();
-    audioEl.src = URL.createObjectURL(mediaSource);
+    objectUrl = URL.createObjectURL(mediaSource);
+    audioEl.src = objectUrl;
 
     return new Promise<void>((resolve, reject) => {
       if (!mediaSource) return reject(new Error("MediaSource not initialized"));
@@ -371,6 +373,10 @@ export function useReadAloud() {
       }
       audioEl.src = "";
       audioEl = null;
+    }
+    if (objectUrl) {
+      URL.revokeObjectURL(objectUrl);
+      objectUrl = null;
     }
     timeUpdateHandler = null;
     endedHandler = null;

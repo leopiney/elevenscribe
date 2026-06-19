@@ -19,6 +19,13 @@ export function useScribe() {
   let audioContext: AudioContext | null = null;
   let processor: ScriptProcessorNode | null = null;
 
+  /** True only while a real recording session is live (WebSocket open). Lets
+   * callers distinguish an actual session from an `isRecording` flag left
+   * stuck-true by an interrupted session. */
+  function isLive(): boolean {
+    return ws !== null && ws.readyState === WebSocket.OPEN;
+  }
+
   /** Acquire the microphone. Call this from a click handler (user gesture). */
   async function acquireMic(): Promise<MediaStream> {
     if (persistentStream && persistentStream.getTracks().every((t) => t.readyState === "live")) {
@@ -246,5 +253,6 @@ export function useScribe() {
     start,
     stop,
     acquireMic,
+    isLive,
   };
 }

@@ -3,7 +3,6 @@ import { ref, computed, onMounted, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { listen } from "@tauri-apps/api/event";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 
 interface HistoryEntry {
   id: string;
@@ -24,22 +23,14 @@ const playingId = ref<string | null>(null);
 let audioContext: AudioContext | null = null;
 let currentSource: AudioBufferSourceNode | null = null;
 
-// Intercept window close to hide instead of destroy (so tray can reopen it)
-let unlistenClose: (() => void) | null = null;
-
+// Window close is intercepted in Rust (hide instead of destroy) for both
+// windows, so no JS close guard is needed here.
 onMounted(async () => {
-  const win = getCurrentWindow();
-  unlistenClose = await win.onCloseRequested(async (event) => {
-    event.preventDefault();
-    await win.hide();
-  });
-
   await loadHistory();
   listen("history-updated", loadHistory);
 });
 
 onUnmounted(() => {
-  unlistenClose?.();
   stopPlayback();
 });
 

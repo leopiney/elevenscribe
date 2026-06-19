@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onUnmounted } from "vue";
+import { ref, computed, watch, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { writeText, readText } from "@tauri-apps/plugin-clipboard-manager";
 import RecordingDot from "./components/RecordingDot.vue";
@@ -31,6 +31,7 @@ const {
   start: scribeStart,
   stop: scribeStop,
   acquireMic,
+  isLive: scribeIsLive,
 } = useScribe();
 
 // ── Read Aloud ───────────────────────────────────────────────────────────────
@@ -114,8 +115,14 @@ async function toggleScribe() {
   if (needsSetup.value) return;
 
   if (isRecording.value) {
-    await stopAndDismiss();
-    return;
+    if (scribeIsLive()) {
+      await stopAndDismiss();
+      return;
+    }
+    // Flag left stuck-true by an interrupted session (e.g. the window was
+    // closed mid-recording) — clear it and start fresh instead of swallowing
+    // this press as a no-op stop.
+    isRecording.value = false;
   }
 
   const hasKey = await invoke<boolean>("has_api_key");
@@ -226,6 +233,26 @@ async function onSetupDone() {
   }
 }
 
+// ── State reset ────────────────────────────────────────────────────────────
+
+/** Tear down any in-flight STT/TTS session and clear stuck flags/errors. Runs
+ * when the overlay is hidden via the native close button or the tray Reset. */
+async function forceResetState() {
+  if (isRecording.value) {
+    try {
+      await scribeStop();
+    } catch {
+      /* ignore */
+    }
+    isRecording.value = false;
+  }
+  if (isPlaying.value) {
+    await readaloudStop().catch(() => undefined);
+  }
+  errorMsg.value = "";
+  readaloudErrorMsg.value = "";
+}
+
 onUnmounted(() => {
   readaloudCleanup();
   scribeStop().catch(() => undefined);
@@ -236,10 +263,42 @@ invoke<boolean>("has_api_key").then((hasKey) => {
   needsSetup.value = !hasKey;
 });
 
+// If this overlay was just rebuilt to recover a lost window, the shortcut press
+// that triggered the rebuild was stashed in the backend (the WebView wasn't
+// listening yet) — pull and run it so recovery works on the first press.
+invoke<string | null>("take_pending_action")
+  .then((action) => {
+    if (action === "toggle-recording") toggleScribe();
+    else if (action === "toggle-readaloud") toggleReadAloud();
+  })
+  .catch(() => undefined);
+
+// Mirror the overlay's activity into the tray status line on every transition.
+const currentActivity = computed(() =>
+  isRecording.value ? "recording" : isPlaying.value ? "reading" : "idle"
+);
+watch(
+  currentActivity,
+  (kind) => {
+    invoke("set_activity", { kind }).catch(() => undefined);
+  },
+  { immediate: true }
+);
+
 useTauriEvents("toggle-recording", toggleScribe);
 useTauriEvents("toggle-readaloud", toggleReadAloud);
 useTauriEvents("show-setup", () => {
   needsSetup.value = true;
+});
+// Native close button (handled in Rust) hides the overlay — reset our state so
+// the next shortcut press starts clean instead of stopping a phantom session.
+useTauriEvents("overlay-hidden", () => {
+  forceResetState();
+});
+// Tray "Reset / Recover" — full teardown.
+useTauriEvents("reset-overlay", async () => {
+  await forceResetState();
+  readaloudCleanup();
 });
 </script>
 

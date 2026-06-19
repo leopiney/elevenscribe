@@ -19,10 +19,21 @@ const DEFAULT_VOICES: &[(&str, &str)] = &[
 
 pub struct TrayState {
     pub api_key_item: MenuItem<tauri::Wry>,
+    pub status_item: MenuItem<tauri::Wry>,
     pub duck_item: CheckMenuItem<tauri::Wry>,
     pub media_item: CheckMenuItem<tauri::Wry>,
     #[allow(dead_code)]
     pub voice_submenu: Submenu<tauri::Wry>,
+}
+
+/// Returns the tray status-line label for the current overlay activity.
+/// `kind` is one of "recording" | "reading" | anything else (treated as idle).
+pub fn activity_label(kind: &str) -> String {
+    match kind {
+        "recording" => "🔴  Recording…".to_string(),
+        "reading" => "🔵  Reading aloud…".to_string(),
+        _ => "⚪  Idle".to_string(),
+    }
 }
 
 /// Returns the tray label for the API key item.
@@ -48,6 +59,11 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
 
     let api_key_item = MenuItemBuilder::with_id("api_key", api_key_label(&key)).build(app)?;
 
+    // Non-clickable status line that reflects the overlay's current activity.
+    let status_item = MenuItemBuilder::with_id("status", activity_label("idle"))
+        .enabled(false)
+        .build(app)?;
+
     let start_scribe_item = MenuItemBuilder::with_id("start_scribe", "Start Recording")
         .accelerator("CmdOrCtrl+Shift+Space")
         .build(app)?;
@@ -72,11 +88,15 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let sep2 = PredefinedMenuItem::separator(app)?;
     let sep3 = PredefinedMenuItem::separator(app)?;
     let sep4 = PredefinedMenuItem::separator(app)?;
+    let reset_item = MenuItemBuilder::with_id("reset", "Reset / Recover").build(app)?;
     let quit = MenuItemBuilder::with_id("quit", "Quit Elevenscribe").build(app)?;
 
+    let status_sep = PredefinedMenuItem::separator(app)?;
     let sep0 = PredefinedMenuItem::separator(app)?;
     let menu = MenuBuilder::new(app)
         .items(&[
+            &status_item,
+            &status_sep,
             &start_scribe_item,
             &start_readaloud_item,
             &sep0,
@@ -89,12 +109,14 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             &duck_item,
             &media_item,
             &sep4,
+            &reset_item,
             &quit,
         ])
         .build()?;
 
     app.manage(TrayState {
         api_key_item: api_key_item.clone(),
+        status_item: status_item.clone(),
         duck_item: duck_item.clone(),
         media_item: media_item.clone(),
         voice_submenu: voice_submenu.clone(),
@@ -208,6 +230,12 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                         .is_checked()
                         .unwrap_or(false);
                     *app_state.stop_media_enabled.lock().unwrap() = enabled;
+                }
+                "reset" => {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        crate::reset_app(&app).await;
+                    });
                 }
                 "quit" => app.exit(0),
                 _ => {}
