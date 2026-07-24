@@ -83,6 +83,8 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .build(app)?;
 
     let history_item = MenuItemBuilder::with_id("history", "History").build(app)?;
+    let recordings_item =
+        MenuItemBuilder::with_id("recordings", "Open Recordings Folder").build(app)?;
 
     let sep1 = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
@@ -103,6 +105,7 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             &api_key_item,
             &sep1,
             &history_item,
+            &recordings_item,
             &sep2,
             &voice_submenu,
             &sep3,
@@ -171,6 +174,12 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                             let _ = w.show();
                             let _ = w.set_focus();
                         }
+                    });
+                }
+                "recordings" => {
+                    let app = app.clone();
+                    tauri::async_runtime::spawn(async move {
+                        let _ = crate::commands::open_recordings_dir(app).await;
                     });
                 }
                 "api_key" => {

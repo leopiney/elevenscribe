@@ -1,5 +1,7 @@
+use base64::Engine as _;
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use serde::Deserialize;
+use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager, State};
 
 use crate::tray::{activity_label, api_key_label, TrayState};
@@ -289,5 +291,71 @@ pub async fn paste_text(app: AppHandle, text: String) -> Result<(), String> {
         .key(Key::Meta, Direction::Release)
         .map_err(|e| e.to_string())?;
 
+    Ok(())
+}
+
+/// Directory where debug mic recordings are stored:
+/// ~/Library/Application Support/{identifier}/debug-recordings.
+fn recordings_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_config_dir()
+        .map_err(|e| e.to_string())?
+        .join("debug-recordings");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    Ok(dir)
+}
+
+/// Keep only the newest `keep` .wav files so recordings don't grow unbounded.
+/// Filenames are timestamped (scribe-YYYY-MM-DD_HH-MM-SS.wav) so lexical order
+/// is chronological.
+fn prune_recordings(dir: &Path, keep: usize) {
+    let mut wavs: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|s| s.to_str()) == Some("wav"))
+        .collect();
+    if wavs.len() <= keep {
+        return;
+    }
+    wavs.sort();
+    for path in &wavs[..wavs.len() - keep] {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
+/// Persist a debug recording of the exact 16 kHz mono PCM sent to Scribe.
+/// The frontend encodes the WAV (byte-identical to what the model received)
+/// and ships it here base64-encoded. Returns the saved file path.
+#[tauri::command]
+pub async fn save_debug_recording(app: AppHandle, wav_data: String) -> Result<String, String> {
+    let dir = recordings_dir(&app)?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(wav_data.as_bytes())
+        .map_err(|e| e.to_string())?;
+
+    let filename = format!(
+        "scribe-{}.wav",
+        chrono::Local::now().format("%Y-%m-%d_%H-%M-%S")
+    );
+    let path = dir.join(&filename);
+    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+
+    prune_recordings(&dir, 50);
+
+    Ok(path.to_string_lossy().to_string())
+}
+
+/// Open the debug-recordings folder in Finder so recordings can be played back.
+#[tauri::command]
+pub async fn open_recordings_dir(app: AppHandle) -> Result<(), String> {
+    let dir = recordings_dir(&app)?;
+    tokio::process::Command::new("/usr/bin/open")
+        .arg(&dir)
+        .output()
+        .await
+        .map_err(|e| e.to_string())?;
     Ok(())
 }

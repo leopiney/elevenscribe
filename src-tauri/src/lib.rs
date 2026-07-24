@@ -95,6 +95,8 @@ pub fn run() {
             commands::resume_media,
             commands::set_activity,
             commands::take_pending_action,
+            commands::save_debug_recording,
+            commands::open_recordings_dir,
             tts::list_voices,
             tts::get_selected_voice,
             tts::set_selected_voice,
