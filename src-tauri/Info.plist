@@ -3,6 +3,6 @@
 <plist version="1.0">
 <dict>
     <key>NSMicrophoneUsageDescription</key>
-    <string>Elevenscribe needs microphone access to transcribe your speech.</string>
+    <string>Wolfbud needs microphone access to transcribe your speech.</string>
 </dict>
 </plist>

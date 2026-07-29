@@ -68,7 +68,7 @@ async function startRecording() {
     if (!needsMicPermission.value) {
       errorMsg.value = String(err);
     }
-    console.error("[elevenscribe] startRecording failed:", err);
+    console.error("[wolfbud] startRecording failed:", err);
   }
 }
 

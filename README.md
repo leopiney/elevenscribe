@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="src-tauri/icons/128x128@2x.png" width="128" alt="Elevenscribe icon" />
+  <img src="src-tauri/icons/128x128@2x.png" width="128" alt="Wolfbud icon" />
 </p>
 
-<h1 align="center">Elevenscribe</h1>
+<h1 align="center">Wolfbud</h1>
 
 <p align="center">
   Speech-to-text and text-to-speech, one hotkey away.
@@ -10,13 +10,13 @@
 
 ---
 
-Elevenscribe is a macOS menubar app powered by [ElevenLabs](https://elevenlabs.io) that gives you **speech-to-text** and **text-to-speech** from anywhere on your Mac.
+Wolfbud is a macOS menubar app that gives you **speech-to-text** and **text-to-speech** from anywhere on your Mac. It uses the [ElevenLabs](https://elevenlabs.io) [Scribe v2 real-time](https://elevenlabs.io/blog/introducing-scribe-v2) model for transcription, through your own API key.
 
-- **Speech-to-Text** — Press **⌘ Shift Space** to start recording, speak, then press **⌘ Shift Space** again to stop. The transcript is pasted directly into the active app using the [Scribe](https://elevenlabs.io/blog/introducing-scribe-v2) real-time API.
+- **Speech-to-Text** — Press **⌘ Shift Space** to start recording, speak, then press **⌘ Shift Space** again to stop. The transcript is pasted directly into the active app using the ElevenLabs Scribe v2 real-time API.
 - **Text-to-Speech** — Copy any text to your clipboard and have it read aloud using ElevenLabs voices.
 
 <p align="center">
-  <img src="docs/screenshot.png" width="600" alt="Elevenscribe overlay showing live transcription while a YouTube video plays" />
+  <img src="docs/screenshot.png" width="600" alt="Wolfbud overlay showing live transcription while a YouTube video plays" />
 </p>
 
 - Floating overlay shows live transcription as you speak
@@ -24,10 +24,13 @@ Elevenscribe is a macOS menubar app powered by [ElevenLabs](https://elevenlabs.i
 - Runs silently in the menu bar, always one shortcut away
 - Requires an [ElevenLabs API key](https://elevenlabs.io/app/settings/api-keys)
 
+> [!NOTE]
+> **Not affiliated with ElevenLabs.** Wolfbud is an independent, personal side project. It is **not** affiliated with, endorsed by, or sponsored by ElevenLabs. It simply calls the ElevenLabs Scribe v2 real-time model using an API key you provide. "ElevenLabs" and "Scribe" are trademarks of ElevenLabs.
+
 ## Install from Releases
 
 1. Go to the [Releases](../../releases) page and download the latest `.dmg`
-2. Open the `.dmg`, drag **Elevenscribe** to your Applications folder
+2. Open the `.dmg`, drag **Wolfbud** to your Applications folder
 3. Launch the app and enter your ElevenLabs API key when prompted
 4. Grant **Accessibility** and **Microphone** permissions if macOS asks
 
@@ -36,8 +39,8 @@ Elevenscribe is a macOS menubar app powered by [ElevenLabs](https://elevenlabs.i
 **Prerequisites:** [Rust](https://rustup.rs), [Node.js](https://nodejs.org), [pnpm](https://pnpm.io)
 
 ```bash
-git clone https://github.com/pentoai/elevenscribe
-cd elevenscribe
+git clone https://github.com/leopiney/wolfbud
+cd wolfbud
 pnpm install
 pnpm tauri build
 ```
@@ -52,7 +55,7 @@ pnpm tauri dev
 
 ## Related
 
-[Epicenter](https://github.com/EpicenterHQ/epicenter) — a more fully-featured ElevenLabs dictation app with more configuration options, if you need something beyond what Elevenscribe offers.
+[Epicenter](https://github.com/EpicenterHQ/epicenter) — a more fully-featured ElevenLabs dictation app with more configuration options, if you need something beyond what Wolfbud offers.
 
 ## Contributing
 
@@ -66,3 +69,7 @@ Commits must follow the [Conventional Commits](https://www.conventionalcommits.o
 | `chore:` `docs:` `refactor:` | `chore: update deps`           | no bump               |
 
 When a versioned commit is merged to `main`, a Release PR is opened automatically. Merging it tags the release and triggers the macOS build.
+
+## License
+
+[MIT](LICENSE) © Leonardo Piñeyro

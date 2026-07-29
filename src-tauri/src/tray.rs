@@ -91,7 +91,7 @@ pub fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let sep3 = PredefinedMenuItem::separator(app)?;
     let sep4 = PredefinedMenuItem::separator(app)?;
     let reset_item = MenuItemBuilder::with_id("reset", "Reset / Recover").build(app)?;
-    let quit = MenuItemBuilder::with_id("quit", "Quit Elevenscribe").build(app)?;
+    let quit = MenuItemBuilder::with_id("quit", "Quit Wolfbud").build(app)?;
 
     let status_sep = PredefinedMenuItem::separator(app)?;
     let sep0 = PredefinedMenuItem::separator(app)?;
