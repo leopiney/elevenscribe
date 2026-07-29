@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.6.0](https://github.com/leopiney/wolfbud/compare/wolfbud-v0.5.0...wolfbud-v0.6.0) (2026-07-29)
+
+
+### Features
+
+* add CI/CD pipeline, pre-commit hooks, and linting toolchain ([c975a28](https://github.com/leopiney/wolfbud/commit/c975a28a4949bd46164d7771caf38357b6cb5600))
+* add read-aloud/TTS support with controls and progress tracking ([f3ac8c5](https://github.com/leopiney/wolfbud/commit/f3ac8c5e9df2a09dbb11e43b6adb2f9f50723e58))
+* keep global shortcut alive on window close, add tray status + reset ([b3fdbbf](https://github.com/leopiney/wolfbud/commit/b3fdbbf587ef9e0a43c5c7e79e3adbf38040bbc4))
+* replace ScriptProcessorNode with AudioWorklet for mic capture ([110d34c](https://github.com/leopiney/wolfbud/commit/110d34c57f1048bb91d3ca23a19abff8fe8c741d))
+* unified overlay with tabs, history browser, and TTS audio caching ([7d4fd63](https://github.com/leopiney/wolfbud/commit/7d4fd63ef44d5829dcba6cbf0c13a11fdcd4e93f))
+
+
+### Bug Fixes
+
+* ensure shortcuts remain responsive after STT/TTS sessions ([6585fa0](https://github.com/leopiney/wolfbud/commit/6585fa0ffc5012a66767093d8240be708011e1e5))
+* release mic stream after transcription to turn off macOS capture indicator ([a28d9f6](https://github.com/leopiney/wolfbud/commit/a28d9f6362ecf9c4c3b278a057828df6b073742a))
+
 ## [0.5.0](https://github.com/leopiney/elevenscribe/compare/elevenscribe-v0.4.0...elevenscribe-v0.5.0) (2026-06-19)
 
 
