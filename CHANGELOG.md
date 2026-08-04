@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/leopiney/wolfbud/compare/wolfbud-v0.7.0...wolfbud-v0.8.0) (2026-08-04)
+
+
+### Features
+
+* make the wolf badge draggable and pettable, track cursor off-window ([4ff7a62](https://github.com/leopiney/wolfbud/commit/4ff7a623062dc87b1c690b27875c5d84b4de3815))
+
 ## [0.7.0](https://github.com/leopiney/wolfbud/compare/wolfbud-v0.6.0...wolfbud-v0.7.0) (2026-08-04)
 
 
