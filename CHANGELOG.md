@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.0](https://github.com/leopiney/wolfbud/compare/wolfbud-v0.6.0...wolfbud-v0.7.0) (2026-08-04)
+
+
+### Features
+
+* add animated 3D wolf badge to overlay ([e314c43](https://github.com/leopiney/wolfbud/commit/e314c43757b8ba7127d2a3f09fb65c0e5ba85d20))
+
 ## [0.6.0](https://github.com/leopiney/wolfbud/compare/wolfbud-v0.5.0...wolfbud-v0.6.0) (2026-07-29)
 
 
