@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, onBeforeUnmount, ref, useTemplateRef } from "vue";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import WolfHead from "./WolfHead.vue";
 
 const props = withDefaults(
@@ -18,16 +19,68 @@ const props = withDefaults(
 /** The canvas fills the disc *inside* the 1px ring. Sizing it to the full badge
  *  pushes it under `overflow: hidden`, which shaves a pixel off the ring. */
 const headSize = computed(() => Math.max(0, props.size - 2));
+
+// ── Pet / drag ───────────────────────────────────────────────────────────────
+// The badge is both the wolf you pet and one of the only two handles for moving
+// this undecorated window, so `data-tauri-drag-region` is off: it hijacks
+// mousedown and hands the gesture to the window server, which swallows the
+// mouseup a click needs. Instead the press is claimed as a drag only once it
+// travels — a press that stays put is a pet.
+
+/** Travel (px) that turns a press into a window drag. */
+const DRAG_THRESHOLD = 4;
+
+const head = useTemplateRef<InstanceType<typeof WolfHead>>("head");
+const pressed = ref(false);
+let pressX = 0;
+let pressY = 0;
+
+function endPress() {
+  pressed.value = false;
+  window.removeEventListener("mousemove", onPressMove);
+  window.removeEventListener("mouseup", onPressUp);
+}
+
+function onPressMove(e: MouseEvent) {
+  if (Math.hypot(e.clientX - pressX, e.clientY - pressY) < DRAG_THRESHOLD) return;
+  // Release the press *first*: once the window server owns the drag, no further
+  // mouse events reach the WebView, so these listeners would never clear.
+  endPress();
+  getCurrentWindow().startDragging().catch(console.error);
+}
+
+function onPressUp() {
+  endPress();
+  head.value?.pet();
+}
+
+function onPressDown(e: MouseEvent) {
+  if (e.button !== 0) return;
+  pressX = e.clientX;
+  pressY = e.clientY;
+  pressed.value = true;
+  window.addEventListener("mousemove", onPressMove);
+  window.addEventListener("mouseup", onPressUp);
+}
+
+onBeforeUnmount(endPress);
 </script>
 
 <template>
   <div
     class="wolf-badge"
-    :class="`is-${state}`"
+    :class="[`is-${state}`, { 'is-pressed': pressed }]"
     :style="{ width: `${size}px`, height: `${size}px` }"
-    data-tauri-drag-region
+    title="Pet the wolf"
+    @mousedown="onPressDown"
   >
-    <WolfHead class="wolf-badge-head" :talking="talking" :level="level" :size="headSize" />
+    <WolfHead
+      ref="head"
+      class="wolf-badge-head"
+      :talking="talking"
+      :level="level"
+      :size="headSize"
+    />
   </div>
 </template>
 
@@ -52,7 +105,16 @@ const headSize = computed(() => Math.max(0, props.size - 2));
   box-shadow:
     0 2px 8px rgba(0, 0, 0, 0.3),
     inset 0 1px 0 rgba(255, 255, 255, 0.18);
-  transition: box-shadow 0.25s ease;
+  cursor: pointer;
+  transition:
+    box-shadow 0.25s ease,
+    transform 0.12s ease;
+}
+
+/* Squish under the finger. Driven by JS rather than `:active` so it can't stick
+   after a drag, where the mouseup never comes back to the WebView. */
+.wolf-badge.is-pressed {
+  transform: scale(0.94);
 }
 
 .wolf-badge-head {

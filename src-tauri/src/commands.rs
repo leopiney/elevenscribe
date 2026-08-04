@@ -2,7 +2,7 @@ use base64::Engine as _;
 use enigo::{Direction, Enigo, Key, Keyboard, Settings};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
-use tauri::{AppHandle, Manager, State};
+use tauri::{AppHandle, Manager, State, Window};
 
 use crate::tray::{activity_label, api_key_label, TrayState};
 use crate::AppState;
@@ -246,6 +246,26 @@ pub fn set_activity(app: AppHandle, kind: String) {
 #[tauri::command]
 pub fn take_pending_action(state: State<'_, AppState>) -> Option<String> {
     state.pending_action.lock().unwrap().take()
+}
+
+/// The cursor's position in the calling window's CSS pixel space — the same
+/// coordinates as a DOM `MouseEvent.clientX/Y`, so the frontend can compare it
+/// against `getBoundingClientRect()` directly.
+///
+/// The wolf badge polls this so it can keep following the pointer after it
+/// leaves the window: `mousemove` stops at the window edge, and the overlay is
+/// a small window sitting in the middle of the desktop. `None` when either
+/// position is unavailable rather than reporting a bogus (0, 0).
+#[tauri::command]
+pub fn cursor_in_window(app: AppHandle, window: Window) -> Option<(f64, f64)> {
+    // Both are physical pixels measured from the top-left of the desktop.
+    let cursor = app.cursor_position().ok()?;
+    let origin = window.outer_position().ok()?;
+    let scale = window.scale_factor().unwrap_or(1.0);
+    Some((
+        (cursor.x - f64::from(origin.x)) / scale,
+        (cursor.y - f64::from(origin.y)) / scale,
+    ))
 }
 
 /// Hide the floating overlay window.

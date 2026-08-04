@@ -9,6 +9,7 @@
     "core:window:allow-hide",
     "core:window:allow-set-position",
     "core:window:allow-set-focus",
+    "core:window:allow-start-dragging",
     "global-shortcut:allow-register",
     "clipboard-manager:allow-write-text",
     "clipboard-manager:allow-read-text"
