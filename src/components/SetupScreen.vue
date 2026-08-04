@@ -54,8 +54,11 @@ async function save() {
   padding: 2px 0 4px;
 }
 
+/* The wolf badge overlaps the card's top-left corner, so the first two rows
+   are indented clear of it. */
 .heading {
   margin: 0 0 4px;
+  padding-left: 12px;
   font-size: 13px;
   font-weight: 600;
   color: rgba(255, 255, 255, 0.9);
@@ -63,6 +66,7 @@ async function save() {
 
 .hint {
   margin: 0 0 10px;
+  padding-left: 12px;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.4);
   line-height: 1.5;

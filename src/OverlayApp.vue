@@ -3,6 +3,7 @@ import { ref, computed, watch, onUnmounted } from "vue";
 import { invoke } from "@tauri-apps/api/core";
 import { writeText, readText } from "@tauri-apps/plugin-clipboard-manager";
 import RecordingDot from "./components/RecordingDot.vue";
+import WolfBadge from "./components/WolfBadge.vue";
 import TranscriptDisplay from "./components/TranscriptDisplay.vue";
 import ActionBar from "./components/ActionBar.vue";
 import ChunkProgress from "./components/ChunkProgress.vue";
@@ -273,6 +274,15 @@ invoke<string | null>("take_pending_action")
   })
   .catch(() => undefined);
 
+// ── Wolf badge ───────────────────────────────────────────────────────────────
+
+/** The wolf talks while the mic is live or while we're actually speaking —
+ *  a paused read-aloud shuts its mouth. */
+const wolfState = computed<"idle" | "recording" | "reading">(() =>
+  isRecording.value ? "recording" : isPlaying.value && !isPaused.value ? "reading" : "idle"
+);
+const wolfLevel = computed(() => (isRecording.value ? audioLevel.value : 0));
+
 // Mirror the overlay's activity into the tray status line on every transition.
 const currentActivity = computed(() =>
   isRecording.value ? "recording" : isPlaying.value ? "reading" : "idle"
@@ -304,12 +314,19 @@ useTauriEvents("reset-overlay", async () => {
 
 <template>
   <div class="overlay-wrapper">
+    <WolfBadge
+      class="wolf-badge-anchor"
+      :state="wolfState"
+      :talking="wolfState !== 'idle'"
+      :level="wolfLevel"
+      :size="59"
+    />
     <div class="card">
       <SetupScreen v-if="needsSetup" @done="onSetupDone" />
 
       <template v-else>
         <!-- Tab bar (drag region for moving the window) -->
-        <div class="tab-bar">
+        <div class="tab-bar" data-tauri-drag-region>
           <button
             class="tab"
             :class="{ active: activeTab === 'scribe' }"
@@ -432,24 +449,42 @@ useTauriEvents("reset-overlay", async () => {
 </template>
 
 <style>
+/* The window is transparent and undecorated — the card below paints the only
+   opaque surface, so the wolf badge can hang off its top-left corner. */
 html,
 body {
   margin: 0;
   padding: 0;
-  background: rgba(20, 20, 20, 0.95);
+  background: transparent;
   overflow: hidden;
 }
 </style>
 
 <style scoped>
 .overlay-wrapper {
+  position: relative;
   width: 100vw;
   height: 100vh;
+  /* Room for the badge overhang (top/left) and the card's drop shadow. */
+  padding: 40px 12px 12px 40px;
   box-sizing: border-box;
 }
 
+.wolf-badge-anchor {
+  position: absolute;
+  /* Held off the window's own edge: the state ring and its glow are painted
+     outside the badge's box, and the window clips anything past 0. */
+  top: 6px;
+  left: 6px;
+  z-index: 5;
+}
+
 .card {
-  background: transparent;
+  position: relative;
+  background: rgba(20, 20, 20, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.55);
   color: white;
   width: 100%;
   height: 100%;
@@ -467,6 +502,8 @@ body {
   display: flex;
   align-items: center;
   gap: 4px;
+  /* Clear the slice of badge that overlaps the card's top-left corner. */
+  padding-left: 12px;
   margin-bottom: 8px;
   flex-shrink: 0;
 }

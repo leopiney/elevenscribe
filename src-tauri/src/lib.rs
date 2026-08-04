@@ -69,8 +69,9 @@ pub fn run() {
 
             tray::setup_tray(app)?;
 
-            // Closing either window via the native traffic-light button (or
-            // Cmd+W) must HIDE it, not destroy it. A destroyed overlay can
+            // Closing either window (main's traffic-light button, or Cmd+W on
+            // the undecorated overlay) must HIDE it, not destroy it. A
+            // destroyed overlay can
             // never be re-shown, so get_webview_window("overlay") returns None
             // and the global shortcut silently no-ops until the app is
             // relaunched — the bug this guards against.
@@ -174,8 +175,10 @@ fn build_overlay_window(app: &tauri::AppHandle) -> Option<tauri::WebviewWindow> 
         tauri::WebviewUrl::App("overlay.html".into()),
     )
     .title("")
-    .inner_size(480.0, 240.0)
-    .decorations(true)
+    .inner_size(540.0, 300.0)
+    .decorations(false)
+    .transparent(true)
+    .shadow(false)
     .always_on_top(true)
     .skip_taskbar(true)
     .resizable(false)
@@ -205,8 +208,14 @@ async fn show_overlay_window(app: &tauri::AppHandle) -> Option<(tauri::WebviewWi
             let sw = monitor.size().width as i32;
             let sh = monitor.size().height as i32;
             if let Ok(outer) = window.outer_size() {
-                let x = (sw - outer.width as i32) / 2;
-                let y = sh - outer.height as i32 - 80;
+                // The window is transparent and padded (see OverlayApp.vue's
+                // .overlay-wrapper) so the wolf badge can hang off the card's
+                // top-left corner. Offset by that padding so the *card* — not
+                // the invisible window box — lands where it always has.
+                let scale = window.scale_factor().unwrap_or(1.0);
+                let pad = |css: f64| (css * scale) as i32;
+                let x = (sw - outer.width as i32) / 2 - (pad(40.0) - pad(12.0)) / 2;
+                let y = sh - outer.height as i32 - 80 + pad(12.0);
                 let _ = window.set_position(tauri::PhysicalPosition { x, y });
             }
         }
